@@ -1,25 +1,24 @@
-import { TextInput, Button, List, ListItem, Container, Row, Column } from '@hospitalrun/components'
-import React, { useEffect, useState } from 'react'
-import { useTranslation } from 'react-i18next'
-import { useSelector, useDispatch } from 'react-redux'
+import { Button, Table, Alert } from '@hospitalrun/components'
+import format from 'date-fns/format'
+import React from 'react'
 import { useHistory } from 'react-router-dom'
 
-import useAddBreadcrumbs from '../../breadcrumbs/useAddBreadcrumbs'
-import { fetchPatientAppointments } from '../../scheduling/appointments/appointments-slice'
-import { RootState } from '../../store'
+import useAddBreadcrumbs from '../../page-header/breadcrumbs/useAddBreadcrumbs'
+import Loading from '../../shared/components/Loading'
+import useTranslator from '../../shared/hooks/useTranslator'
+import Patient from '../../shared/model/Patient'
+import usePatientsAppointments from '../hooks/usePatientAppointments'
 
 interface Props {
-  patientId: string
+  patient: Patient
 }
 
-const AppointmentsList = (props: Props) => {
-  const dispatch = useDispatch()
+const AppointmentsList = ({ patient }: Props) => {
   const history = useHistory()
-  const { t } = useTranslation()
+  const { t } = useTranslator()
+  const patientId = patient.id
 
-  const { patientId } = props
-  const { appointments } = useSelector((state: RootState) => state.appointments)
-  const [searchText, setSearchText] = useState<string>('')
+  const { data, status } = usePatientsAppointments(patientId)
 
   const breadcrumbs = [
     {
@@ -27,30 +26,11 @@ const AppointmentsList = (props: Props) => {
       location: `/patients/${patientId}/appointments`,
     },
   ]
+
   useAddBreadcrumbs(breadcrumbs)
 
-  useEffect(() => {
-    dispatch(fetchPatientAppointments(patientId))
-  }, [dispatch, patientId])
-
-  const list = (
-    // inline style added to pick up on newlines for string literal
-    <ul style={{ whiteSpace: 'pre-line' }}>
-      {appointments.map((a) => (
-        <ListItem action key={a.id} onClick={() => history.push(`/appointments/${a.id}`)}>
-          {new Date(a.startDateTime).toLocaleString()}
-        </ListItem>
-      ))}
-    </ul>
-  )
-
-  const onSearchBoxChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setSearchText(event.target.value)
-  }
-
-  const onSearchFormSubmit = (event: React.FormEvent | React.MouseEvent) => {
-    event.preventDefault()
-    dispatch(fetchPatientAppointments(patientId, searchText))
+  if (data === undefined || status === 'loading') {
+    return <Loading />
   }
 
   return (
@@ -62,39 +42,55 @@ const AppointmentsList = (props: Props) => {
             outlined
             color="success"
             icon="appointment-add"
-            onClick={() => history.push('/appointments/new')}
+            onClick={() => history.push({ pathname: '/appointments/new', state: { patient } })}
           >
             {t('scheduling.appointments.new')}
           </Button>
         </div>
       </div>
       <br />
-      <Container>
-        <form className="form" onSubmit={onSearchFormSubmit}>
-          <Row>
-            <Column md={10}>
-              <TextInput
-                size="lg"
-                type="text"
-                onChange={onSearchBoxChange}
-                value={searchText}
-                placeholder={t('actions.search')}
-              />
-            </Column>
-            <Column md={2}>
-              <Button size="large" onClick={onSearchFormSubmit}>
-                {t('actions.search')}
-              </Button>
-            </Column>
-          </Row>
-        </form>
-
-        <Row>
-          <List layout="flush" style={{ width: '100%', marginTop: '10px', marginLeft: '-25px' }}>
-            {list}
-          </List>
-        </Row>
-      </Container>
+      <div className="row">
+        <div className="col-md-12">
+          {data.length > 0 ? (
+            <Table
+              data={data}
+              getID={(row) => row.id}
+              onRowClick={(row) => history.push(`/appointments/${row.id}`)}
+              columns={[
+                {
+                  label: t('scheduling.appointment.startDate'),
+                  key: 'startDateTime',
+                  formatter: (row) =>
+                    row.startDateTime
+                      ? format(new Date(row.startDateTime), 'yyyy-MM-dd, hh:mm a')
+                      : '',
+                },
+                {
+                  label: t('scheduling.appointment.endDate'),
+                  key: 'endDateTime',
+                  formatter: (row) =>
+                    row.endDateTime ? format(new Date(row.endDateTime), 'yyyy-MM-dd, hh:mm a') : '',
+                },
+                { label: t('scheduling.appointment.location'), key: 'location' },
+                { label: t('scheduling.appointment.type'), key: 'type' },
+              ]}
+              actionsHeaderText={t('actions.label')}
+              actions={[
+                {
+                  label: t('actions.view'),
+                  action: (row) => history.push(`/appointments/${row.id}`),
+                },
+              ]}
+            />
+          ) : (
+            <Alert
+              color="warning"
+              title={t('patient.appointments.warning.noAppointments')}
+              message={t('patient.appointments.addAppointmentAbove')}
+            />
+          )}
+        </div>
+      </div>
     </>
   )
 }

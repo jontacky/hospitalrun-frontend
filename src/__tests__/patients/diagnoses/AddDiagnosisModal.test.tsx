@@ -1,163 +1,104 @@
-import '../../../__mocks__/matchMediaMock'
-
-import { Modal, Alert } from '@hospitalrun/components'
-import { act } from '@testing-library/react'
-import { mount } from 'enzyme'
+import { render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import React from 'react'
-import { Provider } from 'react-redux'
-import createMockStore from 'redux-mock-store'
-import thunk from 'redux-thunk'
 
-import PatientRepository from '../../../clients/db/PatientRepository'
-import DatePickerWithLabelFormGroup from '../../../components/input/DatePickerWithLabelFormGroup'
-import TextInputWithLabelFormGroup from '../../../components/input/TextInputWithLabelFormGroup'
-import Diagnosis from '../../../model/Diagnosis'
-import Patient from '../../../model/Patient'
 import AddDiagnosisModal from '../../../patients/diagnoses/AddDiagnosisModal'
-import * as patientSlice from '../../../patients/patient-slice'
-import { RootState } from '../../../store'
-
-const mockStore = createMockStore<RootState, any>([thunk])
+import PatientRepository from '../../../shared/db/PatientRepository'
+import { CarePlanIntent, CarePlanStatus } from '../../../shared/model/CarePlan'
+import Diagnosis, { DiagnosisStatus } from '../../../shared/model/Diagnosis'
+import Patient from '../../../shared/model/Patient'
 
 describe('Add Diagnosis Modal', () => {
-  beforeEach(() => {
-    jest.spyOn(PatientRepository, 'find')
-    jest.spyOn(PatientRepository, 'saveOrUpdate')
-  })
-
-  it('should render a modal with the correct labels', () => {
-    const store = mockStore({
-      patient: {
-        patient: {
-          id: '1234',
-        },
+  const mockDiagnosis: Diagnosis = {
+    id: '123',
+    name: 'some name',
+    diagnosisDate: new Date().toISOString(),
+    onsetDate: new Date().toISOString(),
+    abatementDate: new Date().toISOString(),
+    status: DiagnosisStatus.Active,
+    visit: '1234',
+    note: 'some note',
+  }
+  const mockPatient = {
+    id: 'patientId',
+    diagnoses: [mockDiagnosis],
+    carePlans: [
+      {
+        id: '123',
+        title: 'some title',
+        description: 'some description',
+        diagnosisId: '123',
+        startDate: new Date().toISOString(),
+        endDate: new Date().toISOString(),
+        status: CarePlanStatus.Active,
+        intent: CarePlanIntent.Proposal,
       },
-    } as any)
-    const wrapper = mount(
-      <Provider store={store}>
-        <AddDiagnosisModal show onCloseButtonClick={jest.fn()} />
-      </Provider>,
-    )
-    wrapper.update()
-    const modal = wrapper.find(Modal)
-    expect(modal).toHaveLength(1)
-    expect(modal.prop('title')).toEqual('patient.diagnoses.new')
-    expect(modal.prop('closeButton')?.children).toEqual('actions.cancel')
-    expect(modal.prop('closeButton')?.color).toEqual('danger')
-    expect(modal.prop('successButton')?.children).toEqual('patient.diagnoses.new')
-    expect(modal.prop('successButton')?.color).toEqual('success')
-    expect(modal.prop('successButton')?.icon).toEqual('add')
+    ],
+  } as Patient
+
+  const setup = (patient = mockPatient, onCloseSpy = jest.fn()) => {
+    jest.spyOn(PatientRepository, 'find').mockResolvedValue(patient)
+    jest.spyOn(PatientRepository, 'saveOrUpdate').mockResolvedValue(patient)
+
+    return render(<AddDiagnosisModal patient={patient} show onCloseButtonClick={onCloseSpy} />)
+  }
+
+  it('should render a modal', () => {
+    setup()
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+
+    expect(screen.getByRole('button', { name: /patient\.diagnoses\.new/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /actions\.cancel/i })).toBeInTheDocument()
   })
 
-  it('should display an errors', () => {
-    const expectedDiagnosisError = {
-      message: 'some message',
-      date: 'some date message',
-      name: 'some date message',
-    }
-    const store = mockStore({
-      patient: {
-        diagnosisError: expectedDiagnosisError,
-      },
-    } as any)
-    const wrapper = mount(
-      <Provider store={store}>
-        <AddDiagnosisModal show onCloseButtonClick={jest.fn()} />
-      </Provider>,
-    )
-    wrapper.update()
+  it('should render the diagnosis form', () => {
+    setup()
 
-    expect(wrapper.find(Alert)).toHaveLength(1)
-
-    expect(wrapper.find(Alert).prop('title')).toEqual('states.error')
-    expect(wrapper.find(Alert).prop('message')).toContain(expectedDiagnosisError.message)
-    expect(wrapper.find(TextInputWithLabelFormGroup).prop('feedback')).toContain(
-      expectedDiagnosisError.name,
-    )
-    expect(wrapper.find(TextInputWithLabelFormGroup).prop('isInvalid')).toBeTruthy()
-    expect(wrapper.find(DatePickerWithLabelFormGroup).prop('feedback')).toContain(
-      expectedDiagnosisError.date,
-    )
-    expect(wrapper.find(DatePickerWithLabelFormGroup).prop('isInvalid')).toBeTruthy()
+    expect(screen.getByRole('form')).toBeInTheDocument()
   })
 
-  describe('cancel', () => {
-    it('should call the onCloseButtonClick function when the close button is clicked', () => {
-      const onCloseButtonClickSpy = jest.fn()
-      const store = mockStore({
-        patient: {
-          patient: {
-            id: '1234',
-          },
-        },
-      } as any)
-      const wrapper = mount(
-        <Provider store={store}>
-          <AddDiagnosisModal show onCloseButtonClick={onCloseButtonClickSpy} />
-        </Provider>,
-      )
-      wrapper.update()
+  it('should dispatch add diagnosis when the save button is clicked', async () => {
+    const patient = mockPatient
+    patient.diagnoses = []
+    setup(patient)
 
-      act(() => {
-        const modal = wrapper.find(Modal)
-        const { onClick } = modal.prop('closeButton') as any
-        onClick()
-      })
+    const newDiagnosis = mockDiagnosis
+    newDiagnosis.name = 'yellow polka dot spots'
 
-      expect(onCloseButtonClickSpy).toHaveBeenCalledTimes(1)
-    })
+    userEvent.type(
+      screen.getByPlaceholderText(/patient\.diagnoses\.diagnosisName/i),
+      newDiagnosis.name,
+    )
+
+    await waitFor(() =>
+      userEvent.click(
+        within(screen.getByRole('dialog')).getByRole('button', {
+          name: /patient\.diagnoses\.new/i,
+        }),
+      ),
+    )
+
+    expect(PatientRepository.saveOrUpdate).toHaveBeenCalledTimes(1)
+    expect(PatientRepository.saveOrUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        diagnoses: [expect.objectContaining({ name: 'yellow polka dot spots' })],
+      }),
+    )
+    expect(await screen.queryByRole('dialogue')).not.toBeInTheDocument()
   })
 
-  describe('save', () => {
-    it('should dispatch add diagnosis', () => {
-      const expectedName = 'expected name'
-      const expectedDate = new Date()
-      jest.spyOn(patientSlice, 'addDiagnosis')
-      const patient = {
-        id: '1234',
-        givenName: 'some name',
-      }
+  it('should call the on close function when the cancel button is clicked', async () => {
+    const onCloseButtonClickSpy = jest.fn()
+    setup(mockPatient, onCloseButtonClickSpy)
 
-      jest.spyOn(PatientRepository, 'find').mockResolvedValue(patient as Patient)
-      jest.spyOn(PatientRepository, 'saveOrUpdate').mockResolvedValue(patient as Patient)
-
-      const diagnosis = {
-        name: expectedName,
-        diagnosisDate: expectedDate.toISOString(),
-      } as Diagnosis
-
-      const store = mockStore({
-        patient: {
-          patient,
-        },
-      } as any)
-      const wrapper = mount(
-        <Provider store={store}>
-          <AddDiagnosisModal show onCloseButtonClick={jest.fn()} />
-        </Provider>,
-      )
-
-      act(() => {
-        const input = wrapper.findWhere((c: any) => c.prop('name') === 'name')
-        const onChange = input.prop('onChange')
-        onChange({ target: { value: expectedName } })
-      })
-      wrapper.update()
-
-      act(() => {
-        const input = wrapper.findWhere((c: any) => c.prop('name') === 'diagnosisDate')
-        const onChange = input.prop('onChange')
-        onChange(expectedDate)
-      })
-      wrapper.update()
-
-      act(() => {
-        const modal = wrapper.find(Modal)
-        const { onClick } = modal.prop('successButton') as any
-        onClick()
-      })
-
-      expect(patientSlice.addDiagnosis).toHaveBeenCalledWith(patient.id, { ...diagnosis })
-    })
+    await waitFor(() =>
+      userEvent.click(
+        within(screen.getByRole('dialog')).getByRole('button', {
+          name: /actions\.cancel/i,
+        }),
+      ),
+    )
+    expect(onCloseButtonClickSpy).toHaveBeenCalledTimes(1)
   })
 })

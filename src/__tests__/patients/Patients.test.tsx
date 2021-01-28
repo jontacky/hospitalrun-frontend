@@ -1,50 +1,56 @@
-import '../../__mocks__/matchMediaMock'
-
-import { mount } from 'enzyme'
+import { render, screen } from '@testing-library/react'
+import { createMemoryHistory } from 'history'
 import React from 'react'
-import { act } from 'react-dom/test-utils'
 import { Provider } from 'react-redux'
-import { MemoryRouter } from 'react-router-dom'
+import { Router } from 'react-router-dom'
 import createMockStore from 'redux-mock-store'
 import thunk from 'redux-thunk'
 
-import { addBreadcrumbs } from '../../breadcrumbs/breadcrumbs-slice'
-import PatientRepository from '../../clients/db/PatientRepository'
-import Dashboard from '../../dashboard/Dashboard'
 import HospitalRun from '../../HospitalRun'
-import Patient from '../../model/Patient'
-import Permissions from '../../model/Permissions'
-import EditPatient from '../../patients/edit/EditPatient'
-import NewPatient from '../../patients/new/NewPatient'
-import ViewPatient from '../../patients/view/ViewPatient'
-import { RootState } from '../../store'
+import { addBreadcrumbs } from '../../page-header/breadcrumbs/breadcrumbs-slice'
+import * as titleUtil from '../../page-header/title/TitleContext'
+import * as patientNameUtil from '../../patients/util/patient-util'
+import PatientRepository from '../../shared/db/PatientRepository'
+import Patient from '../../shared/model/Patient'
+import Permissions from '../../shared/model/Permissions'
+import { RootState } from '../../shared/store'
 
+const { TitleProvider } = titleUtil
 const mockStore = createMockStore<RootState, any>([thunk])
 
-describe('/patients/new', () => {
-  it('should render the new patient screen when /patients/new is accessed', async () => {
-    const store = mockStore({
-      title: 'test',
-      user: { permissions: [Permissions.WritePatients] },
-      patient: {},
-      breadcrumbs: { breadcrumbs: [] },
-      components: { sidebarCollapsed: false },
-    } as any)
+const setup = (url: string, permissions: Permissions[] = []) => {
+  const store = mockStore({
+    user: { user: { id: '123' }, permissions },
+    breadcrumbs: { breadcrumbs: [] },
+    patient: {},
+    components: { sidebarCollapsed: false },
+  } as any)
+  const history = createMemoryHistory({ initialEntries: [url] })
 
-    let wrapper: any
-
-    await act(async () => {
-      wrapper = await mount(
-        <Provider store={store}>
-          <MemoryRouter initialEntries={['/patients/new']}>
+  return {
+    store,
+    history,
+    ...render(
+      <Provider store={store}>
+        <Router history={history}>
+          <TitleProvider>
             <HospitalRun />
-          </MemoryRouter>
-        </Provider>,
-      )
-    })
+          </TitleProvider>
+        </Router>
+      </Provider>,
+    ),
+  }
+}
 
-    expect(wrapper.find(NewPatient)).toHaveLength(1)
+describe('/patients/new', () => {
+  it('sould render the new patient screen when /patients/new is accessed', async () => {
+    const { store } = setup('/patients/new', [Permissions.WritePatients])
 
+    expect(
+      await screen.findByRole('heading', { name: /patients\.newPatient/i }),
+    ).toBeInTheDocument()
+
+    // TODO: Figure out how to select these in the dom instead of checking the store
     expect(store.getActions()).toContainEqual(
       addBreadcrumbs([
         { i18nKey: 'patients.label', location: '/patients' },
@@ -54,28 +60,15 @@ describe('/patients/new', () => {
     )
   })
 
-  it('should render the Dashboard if the user does not have write patient privileges', () => {
-    const wrapper = mount(
-      <Provider
-        store={mockStore({
-          title: 'test',
-          user: { permissions: [] },
-          breadcrumbs: { breadcrumbs: [] },
-          components: { sidebarCollapsed: false },
-        } as any)}
-      >
-        <MemoryRouter initialEntries={['/patients/new']}>
-          <HospitalRun />
-        </MemoryRouter>
-      </Provider>,
-    )
+  it('should render the Dashboard if the user does not have write patient privileges', async () => {
+    setup('/patients/new')
 
-    expect(wrapper.find(Dashboard)).toHaveLength(1)
+    expect(await screen.findByRole('heading', { name: /dashboard\.label/i })).toBeInTheDocument()
   })
 })
 
 describe('/patients/edit/:id', () => {
-  it('should render the edit patient screen when /patients/edit/:id is accessed', () => {
+  it('should render the edit patient screen when /patients/edit/:id is accessed', async () => {
     const patient = {
       id: '123',
       prefix: 'test',
@@ -86,25 +79,20 @@ describe('/patients/edit/:id', () => {
     } as Patient
 
     jest.spyOn(PatientRepository, 'find').mockResolvedValue(patient)
+    jest
+      .spyOn(patientNameUtil, 'getPatientFullName')
+      .mockReturnValue(`${patient.prefix} ${patient.givenName} ${patient.familyName}`)
 
-    const store = mockStore({
-      title: 'test',
-      user: { permissions: [Permissions.WritePatients, Permissions.ReadPatients] },
-      patient: { patient },
-      breadcrumbs: { breadcrumbs: [] },
-      components: { sidebarCollapsed: false },
-    } as any)
+    const { store } = setup('/patients/edit/123', [
+      Permissions.WritePatients,
+      Permissions.ReadPatients,
+    ])
 
-    const wrapper = mount(
-      <Provider store={store}>
-        <MemoryRouter initialEntries={['/patients/edit/123']}>
-          <HospitalRun />
-        </MemoryRouter>
-      </Provider>,
-    )
+    expect(
+      await screen.findByRole('heading', { name: /patients\.editPatient/i }),
+    ).toBeInTheDocument()
 
-    expect(wrapper.find(EditPatient)).toHaveLength(1)
-
+    // TODO: Figure out how to select these in the dom instead of checking the store
     expect(store.getActions()).toContainEqual(
       addBreadcrumbs([
         { i18nKey: 'patients.label', location: '/patients' },
@@ -115,42 +103,16 @@ describe('/patients/edit/:id', () => {
     )
   })
 
-  it('should render the Dashboard when the user does not have read patient privileges', () => {
-    const wrapper = mount(
-      <Provider
-        store={mockStore({
-          title: 'test',
-          user: { permissions: [Permissions.WritePatients] },
-          breadcrumbs: { breadcrumbs: [] },
-          components: { sidebarCollapsed: false },
-        } as any)}
-      >
-        <MemoryRouter initialEntries={['/patients/edit/123']}>
-          <HospitalRun />
-        </MemoryRouter>
-      </Provider>,
-    )
+  it('should render the Dashboard when the user does not have read patient privileges', async () => {
+    setup('/patients/edit/123', [Permissions.WritePatients])
 
-    expect(wrapper.find(Dashboard)).toHaveLength(1)
+    expect(await screen.findByRole('heading', { name: /dashboard\.label/i })).toBeInTheDocument()
   })
 
-  it('should render the Dashboard when the user does not have write patient privileges', () => {
-    const wrapper = mount(
-      <Provider
-        store={mockStore({
-          title: 'test',
-          user: { permissions: [Permissions.ReadPatients] },
-          breadcrumbs: { breadcrumbs: [] },
-          components: { sidebarCollapsed: false },
-        } as any)}
-      >
-        <MemoryRouter initialEntries={['/patients/edit/123']}>
-          <HospitalRun />
-        </MemoryRouter>
-      </Provider>,
-    )
+  it('should render the Dashboard when the user does not have write patient privileges', async () => {
+    setup('/patients/edit/123', [Permissions.ReadPatients])
 
-    expect(wrapper.find(Dashboard)).toHaveLength(1)
+    expect(await screen.findByRole('heading', { name: /dashboard\.label/i })).toBeInTheDocument()
   })
 })
 
@@ -167,24 +129,11 @@ describe('/patients/:id', () => {
 
     jest.spyOn(PatientRepository, 'find').mockResolvedValue(patient)
 
-    const store = mockStore({
-      title: 'test',
-      user: { permissions: [Permissions.ReadPatients] },
-      patient: { patient },
-      breadcrumbs: { breadcrumbs: [] },
-      components: { sidebarCollapsed: false },
-    } as any)
+    const { store } = setup('/patients/123', [Permissions.ReadPatients])
 
-    const wrapper = mount(
-      <Provider store={store}>
-        <MemoryRouter initialEntries={['/patients/123']}>
-          <HospitalRun />
-        </MemoryRouter>
-      </Provider>,
-    )
+    expect(await screen.findByRole('heading', { name: /patient\.label/i })).toBeInTheDocument()
 
-    expect(wrapper.find(ViewPatient)).toHaveLength(1)
-
+    // TODO: Figure out how to select these in the dom instead of checking the store
     expect(store.getActions()).toContainEqual(
       addBreadcrumbs([
         { i18nKey: 'patients.label', location: '/patients' },
@@ -194,22 +143,9 @@ describe('/patients/:id', () => {
     )
   })
 
-  it('should render the Dashboard when the user does not have read patient privileges', () => {
-    const wrapper = mount(
-      <Provider
-        store={mockStore({
-          title: 'test',
-          user: { permissions: [] },
-          breadcrumbs: { breadcrumbs: [] },
-          components: { sidebarCollapsed: false },
-        } as any)}
-      >
-        <MemoryRouter initialEntries={['/patients/123']}>
-          <HospitalRun />
-        </MemoryRouter>
-      </Provider>,
-    )
+  it('should render the Dashboard when the user does not have read patient privileges', async () => {
+    setup('/patients/123')
 
-    expect(wrapper.find(Dashboard)).toHaveLength(1)
+    expect(await screen.findByRole('heading', { name: /dashboard\.label/i })).toBeInTheDocument()
   })
 })

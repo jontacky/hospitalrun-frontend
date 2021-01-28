@@ -1,53 +1,56 @@
-import '../__mocks__/matchMediaMock'
-
-import { Toaster } from '@hospitalrun/components'
-import { mount } from 'enzyme'
+import { render, screen, within } from '@testing-library/react'
 import React from 'react'
-import { act } from 'react-dom/test-utils'
 import { Provider } from 'react-redux'
 import { MemoryRouter } from 'react-router-dom'
 import createMockStore from 'redux-mock-store'
 import thunk from 'redux-thunk'
 
-import { addBreadcrumbs } from '../breadcrumbs/breadcrumbs-slice'
-import LabRepository from '../clients/db/LabRepository'
-import Dashboard from '../dashboard/Dashboard'
 import HospitalRun from '../HospitalRun'
-import Incidents from '../incidents/Incidents'
-import ViewLabs from '../labs/ViewLabs'
-import Permissions from '../model/Permissions'
-import Appointments from '../scheduling/appointments/Appointments'
-import Settings from '../settings/Settings'
-import { RootState } from '../store'
+import { addBreadcrumbs } from '../page-header/breadcrumbs/breadcrumbs-slice'
+import * as titleUtil from '../page-header/title/TitleContext'
+import ImagingRepository from '../shared/db/ImagingRepository'
+import IncidentRepository from '../shared/db/IncidentRepository'
+import LabRepository from '../shared/db/LabRepository'
+import MedicationRepository from '../shared/db/MedicationRepository'
+import Permissions from '../shared/model/Permissions'
+import { RootState } from '../shared/store'
 
+const { TitleProvider } = titleUtil
 const mockStore = createMockStore<RootState, any>([thunk])
 
 describe('HospitalRun', () => {
+  const setup = (route: string, permissions: Permissions[] = []) => {
+    const store = mockStore({
+      user: { user: { id: '123' }, permissions },
+      appointments: { appointments: [] },
+      medications: { medications: [] },
+      labs: { labs: [] },
+      imagings: { imagings: [] },
+      breadcrumbs: { breadcrumbs: [] },
+      components: { sidebarCollapsed: false },
+    } as any)
+
+    const results = render(
+      <Provider store={store}>
+        <MemoryRouter initialEntries={[route]}>
+          <TitleProvider>
+            <HospitalRun />
+          </TitleProvider>
+        </MemoryRouter>
+      </Provider>,
+    )
+
+    return { ...results, store }
+  }
+
   describe('routing', () => {
     describe('/appointments', () => {
-      it('should render the appointments screen when /appointments is accessed', async () => {
-        const store = mockStore({
-          title: 'test',
-          user: { permissions: [Permissions.ReadAppointments] },
-          appointments: { appointments: [] },
-          breadcrumbs: { breadcrumbs: [] },
-          components: { sidebarCollapsed: false },
-          incidents: { incidents: [] },
-        } as any)
+      it('should render the appointments screen when /appointments is accessed', () => {
+        const { store } = setup('/appointments', [Permissions.ReadAppointments])
 
-        const wrapper = mount(
-          <Provider store={store}>
-            <MemoryRouter initialEntries={['/appointments']}>
-              <HospitalRun />
-            </MemoryRouter>
-          </Provider>,
-        )
-
-        await act(async () => {
-          wrapper.update()
-        })
-
-        expect(wrapper.find(Appointments)).toHaveLength(1)
+        expect(
+          screen.getByRole('heading', { name: /scheduling\.appointments\.label/i }),
+        ).toBeInTheDocument()
 
         expect(store.getActions()).toContainEqual(
           addBreadcrumbs([
@@ -58,160 +61,108 @@ describe('HospitalRun', () => {
       })
 
       it('should render the Dashboard when the user does not have read appointment privileges', () => {
-        const wrapper = mount(
-          <Provider
-            store={mockStore({
-              title: 'test',
-              user: { permissions: [] },
-              breadcrumbs: { breadcrumbs: [] },
-              components: { sidebarCollapsed: false },
-            } as any)}
-          >
-            <MemoryRouter initialEntries={['/appointments']}>
-              <HospitalRun />
-            </MemoryRouter>
-          </Provider>,
-        )
+        setup('/appointments')
 
-        expect(wrapper.find(Dashboard)).toHaveLength(1)
+        expect(screen.getByRole('heading', { name: /dashboard/i })).toBeInTheDocument()
+        expect(window.location.pathname).toBe('/')
       })
     })
 
     describe('/labs', () => {
-      it('should render the Labs component when /labs is accessed', async () => {
+      it('should render the Labs component when /labs is accessed', () => {
         jest.spyOn(LabRepository, 'findAll').mockResolvedValue([])
-        const store = mockStore({
-          title: 'test',
-          user: { permissions: [Permissions.ViewLabs] },
-          labs: { labs: [] },
-          breadcrumbs: { breadcrumbs: [] },
-          components: { sidebarCollapsed: false },
-        } as any)
+        setup('/labs', [Permissions.ViewLabs])
 
-        let wrapper: any
-        await act(async () => {
-          wrapper = await mount(
-            <Provider store={store}>
-              <MemoryRouter initialEntries={['/labs']}>
-                <HospitalRun />
-              </MemoryRouter>
-            </Provider>,
-          )
-        })
-        wrapper.update()
-
-        expect(wrapper.find(ViewLabs)).toHaveLength(1)
+        const table = screen.getByRole('table')
+        expect(within(table).getByText(/labs.lab.code/i)).toBeInTheDocument()
+        expect(within(table).getByText(/labs.lab.type/i)).toBeInTheDocument()
+        expect(within(table).getByText(/labs.lab.requestedOn/i)).toBeInTheDocument()
+        expect(within(table).getByText(/labs.lab.status/i)).toBeInTheDocument()
+        expect(within(table).getByText(/actions.label/i)).toBeInTheDocument()
       })
 
       it('should render the dashboard if the user does not have permissions to view labs', () => {
         jest.spyOn(LabRepository, 'findAll').mockResolvedValue([])
-        const store = mockStore({
-          title: 'test',
-          user: { permissions: [] },
-          breadcrumbs: { breadcrumbs: [] },
-          components: { sidebarCollapsed: false },
-        } as any)
+        setup('/labs')
 
-        const wrapper = mount(
-          <Provider store={store}>
-            <MemoryRouter initialEntries={['/labs']}>
-              <HospitalRun />
-            </MemoryRouter>
-          </Provider>,
-        )
+        expect(screen.getByRole('heading', { name: /dashboard/i })).toBeInTheDocument()
+        expect(window.location.pathname).toBe('/')
+      })
+    })
 
-        expect(wrapper.find(ViewLabs)).toHaveLength(0)
-        expect(wrapper.find(Dashboard)).toHaveLength(1)
+    describe('/medications', () => {
+      it('should render the Medications component when /medications is accessed', () => {
+        jest.spyOn(MedicationRepository, 'search').mockResolvedValue([])
+        setup('/medications', [Permissions.ViewMedications])
+
+        const medicationInput = screen.getByRole(/combobox/i) as HTMLInputElement
+        expect(medicationInput.value).toBe('medications.filter.all')
+        expect(screen.getByLabelText(/medications.search/i)).toBeInTheDocument()
+      })
+
+      it('should render the dashboard if the user does not have permissions to view medications', () => {
+        jest.spyOn(MedicationRepository, 'findAll').mockResolvedValue([])
+        setup('/medications')
+
+        expect(screen.getByRole('heading', { name: /dashboard/i })).toBeInTheDocument()
+        expect(window.location.pathname).toBe('/')
       })
     })
 
     describe('/incidents', () => {
-      it('should render the Incidents component when /incidents is accessed', async () => {
-        const store = mockStore({
-          title: 'test',
-          user: { permissions: [Permissions.ViewIncidents] },
-          breadcrumbs: { breadcrumbs: [] },
-          components: { sidebarCollapsed: false },
-          incidents: { incidents: [] },
-        } as any)
+      it('should render the Incidents component when /incidents is accessed', () => {
+        jest.spyOn(IncidentRepository, 'search').mockResolvedValue([])
+        const permissions: Permissions[] = [Permissions.ViewIncidents]
+        setup('/incidents', permissions)
 
-        let wrapper: any
-        await act(async () => {
-          wrapper = await mount(
-            <Provider store={store}>
-              <MemoryRouter initialEntries={['/incidents']}>
-                <HospitalRun />
-              </MemoryRouter>
-            </Provider>,
-          )
-        })
-        wrapper.update()
-
-        expect(wrapper.find(Incidents)).toHaveLength(1)
+        const incidentInput = screen.getByRole(/combobox/i) as HTMLInputElement
+        expect(incidentInput.value).toBe('incidents.status.reported')
+        expect(screen.getByRole('button', { name: /incidents.reports.new/i })).toBeInTheDocument()
       })
 
       it('should render the dashboard if the user does not have permissions to view incidents', () => {
         jest.spyOn(LabRepository, 'findAll').mockResolvedValue([])
-        const store = mockStore({
-          title: 'test',
-          user: { permissions: [] },
-          breadcrumbs: { breadcrumbs: [] },
-          components: { sidebarCollapsed: false },
-        } as any)
+        setup('/incidents')
 
-        const wrapper = mount(
-          <Provider store={store}>
-            <MemoryRouter initialEntries={['/incidents']}>
-              <HospitalRun />
-            </MemoryRouter>
-          </Provider>,
-        )
+        expect(screen.getByRole('heading', { name: /dashboard/i })).toBeInTheDocument()
+        expect(window.location.pathname).toBe('/')
+      })
+    })
 
-        expect(wrapper.find(Incidents)).toHaveLength(0)
-        expect(wrapper.find(Dashboard)).toHaveLength(1)
+    describe('/imaging', () => {
+      it('should render the Imagings component when /imaging is accessed', () => {
+        jest.spyOn(ImagingRepository, 'search').mockResolvedValue([])
+        const permissions: Permissions[] = [Permissions.ViewImagings]
+        setup('/imaging', permissions)
+
+        expect(screen.getByRole('heading', { name: /imagings.label/i })).toBeInTheDocument()
+      })
+
+      it('should render the dashboard if the user does not have permissions to view imagings', () => {
+        jest.spyOn(LabRepository, 'findAll').mockResolvedValue([])
+        setup('/imaging')
+
+        expect(screen.getByRole('heading', { name: /dashboard/i })).toBeInTheDocument()
+        expect(window.location.pathname).toBe('/')
       })
     })
 
     describe('/settings', () => {
-      it('should render the Settings component when /settings is accessed', async () => {
-        const store = mockStore({
-          title: 'test',
-          user: { permissions: [] },
-          breadcrumbs: { breadcrumbs: [] },
-          components: { sidebarCollapsed: false },
-        } as any)
+      it('should render the Settings component when /settings is accessed', () => {
+        setup('/settings')
 
-        const wrapper = mount(
-          <Provider store={store}>
-            <MemoryRouter initialEntries={['/settings']}>
-              <HospitalRun />
-            </MemoryRouter>
-          </Provider>,
-        )
-
-        expect(wrapper.find(Settings)).toHaveLength(1)
+        expect(screen.getByText(/settings.language.label/i)).toBeInTheDocument()
       })
     })
   })
 
   describe('layout', () => {
     it('should render a Toaster', () => {
-      const wrapper = mount(
-        <Provider
-          store={mockStore({
-            title: 'test',
-            user: { permissions: [Permissions.WritePatients] },
-            breadcrumbs: { breadcrumbs: [] },
-            components: { sidebarCollapsed: false },
-          } as any)}
-        >
-          <MemoryRouter initialEntries={['/']}>
-            <HospitalRun />
-          </MemoryRouter>
-        </Provider>,
-      )
+      const permissions: Permissions[] = [Permissions.WritePatients]
+      setup('/', permissions)
 
-      expect(wrapper.find(Toaster)).toHaveLength(1)
+      const main = screen.getByRole('main')
+      expect(main.lastChild).toHaveClass('Toastify')
     })
   })
 })

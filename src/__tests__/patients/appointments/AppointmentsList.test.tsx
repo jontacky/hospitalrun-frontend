@@ -1,19 +1,17 @@
-import '../../../__mocks__/matchMediaMock'
-
-import * as components from '@hospitalrun/components'
-import { mount, ReactWrapper } from 'enzyme'
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { createMemoryHistory } from 'history'
 import React from 'react'
-import { act } from 'react-dom/test-utils'
 import { Provider } from 'react-redux'
 import { Router } from 'react-router-dom'
 import createMockStore from 'redux-mock-store'
 import thunk from 'redux-thunk'
 
-import Patient from '../../../model/Patient'
 import AppointmentsList from '../../../patients/appointments/AppointmentsList'
-import * as appointmentsSlice from '../../../scheduling/appointments/appointments-slice'
-import { RootState } from '../../../store'
+import PatientRepository from '../../../shared/db/PatientRepository'
+import Appointment from '../../../shared/model/Appointment'
+import Patient from '../../../shared/model/Patient'
+import { RootState } from '../../../shared/store'
 
 const expectedPatient = {
   id: '123',
@@ -23,7 +21,7 @@ const expectedAppointments = [
   {
     id: '456',
     rev: '1',
-    patientId: '1234',
+    patient: '1234',
     startDateTime: new Date(2020, 1, 1, 9, 0, 0, 0).toISOString(),
     endDateTime: new Date(2020, 1, 1, 9, 30, 0, 0).toISOString(),
     location: 'location',
@@ -32,79 +30,99 @@ const expectedAppointments = [
   {
     id: '123',
     rev: '1',
-    patientId: '1234',
+    patient: '1234',
     startDateTime: new Date(2020, 1, 1, 8, 0, 0, 0).toISOString(),
     endDateTime: new Date(2020, 1, 1, 8, 30, 0, 0).toISOString(),
     location: 'location',
     reason: 'Checkup',
   },
-]
+] as Appointment[]
 
 const mockStore = createMockStore<RootState, any>([thunk])
-const history = createMemoryHistory()
-
-let store: any
 
 const setup = (patient = expectedPatient, appointments = expectedAppointments) => {
-  store = mockStore({ patient, appointments: { appointments } } as any)
-  const wrapper = mount(
-    <Router history={history}>
-      <Provider store={store}>
-        <AppointmentsList patientId={patient.id} />
-      </Provider>
-    </Router>,
-  )
-  return wrapper
+  jest.resetAllMocks()
+  jest.spyOn(PatientRepository, 'getAppointments').mockResolvedValue(appointments)
+  const store = mockStore({ patient, appointments: { appointments } } as any)
+  const history = createMemoryHistory()
+
+  return {
+    history,
+    ...render(
+      <Router history={history}>
+        <Provider store={store}>
+          <AppointmentsList patient={patient} />
+        </Provider>
+      </Router>,
+    ),
+  }
 }
 
 describe('AppointmentsList', () => {
-  it('should render a list of appointments', () => {
-    const wrapper = setup()
-    const listItems: ReactWrapper = wrapper.find(components.ListItem)
+  describe('Table', () => {
+    it('should render a list of appointments', async () => {
+      setup()
+      await waitFor(() => {
+        expect(screen.getByRole('table')).toBeInTheDocument()
+      })
+      const header = screen.getAllByRole('columnheader')
 
-    expect(listItems.length === 2).toBeTruthy()
-    expect(listItems.at(0).text()).toEqual(
-      new Date(expectedAppointments[0].startDateTime).toLocaleString(),
-    )
-    expect(listItems.at(1).text()).toEqual(
-      new Date(expectedAppointments[1].startDateTime).toLocaleString(),
-    )
+      expect(header[0]).toHaveTextContent(/scheduling.appointment.startDate/i)
+      expect(header[1]).toHaveTextContent(/scheduling.appointment.endDate/i)
+      expect(header[2]).toHaveTextContent(/scheduling.appointment.location/i)
+      expect(header[3]).toHaveTextContent(/scheduling.appointment.type/i)
+      expect(header[4]).toHaveTextContent(/actions.label/i)
+      expect(screen.getAllByRole('button', { name: /actions.view/i })[0]).toBeInTheDocument()
+    })
+
+    it('should navigate to appointment profile on appointment click', async () => {
+      const { history } = setup()
+
+      userEvent.click((await screen.findAllByRole('button', { name: /actions.view/i }))[0])
+
+      await waitFor(() => {
+        expect(history.location.pathname).toEqual('/appointments/456')
+      })
+    })
   })
 
-  it('should search for "ch" in the list', () => {
-    jest.spyOn(appointmentsSlice, 'fetchPatientAppointments')
-    const searchText = 'ch'
-    const wrapper = setup()
+  describe('Empty list', () => {
+    it('should render a warning message if there are no appointments', async () => {
+      setup(expectedPatient, [])
 
-    const searchInput: ReactWrapper = wrapper.find('input').at(0)
-    searchInput.simulate('change', { target: { value: searchText } })
+      const alert = await screen.findByRole('alert')
 
-    wrapper.find('button').at(1).simulate('click')
-
-    expect(appointmentsSlice.fetchPatientAppointments).toHaveBeenCalledWith(
-      expectedPatient.id,
-      searchText,
-    )
+      expect(alert).toBeInTheDocument()
+      expect(screen.getByText(/patient.appointments.warning.noAppointments/i)).toBeInTheDocument()
+      expect(screen.getByText(/patient.appointments.addAppointmentAbove/i)).toBeInTheDocument()
+    })
   })
 
   describe('New appointment button', () => {
-    it('should render a new appointment button', () => {
-      const wrapper = setup()
+    it('should render a new appointment button if there is an appointment', async () => {
+      setup()
 
-      const addNewAppointmentButton = wrapper.find(components.Button).at(0)
-      expect(addNewAppointmentButton).toHaveLength(1)
-      expect(addNewAppointmentButton.text().trim()).toEqual('scheduling.appointments.new')
+      expect(
+        await screen.findByRole('button', { name: /scheduling.appointments.new/i }),
+      ).toBeInTheDocument()
     })
 
-    it('should navigate to new appointment page', () => {
-      const wrapper = setup()
+    it('should render a new appointment button if there are no appointments', async () => {
+      setup(expectedPatient, [])
 
-      act(() => {
-        wrapper.find(components.Button).at(0).simulate('click')
+      expect(
+        await screen.findByRole('button', { name: /scheduling.appointments.new/i }),
+      ).toBeInTheDocument()
+    })
+
+    it('should navigate to new appointment page', async () => {
+      const { history } = setup()
+
+      userEvent.click(await screen.findByRole('button', { name: /scheduling.appointments.new/i }))
+
+      await waitFor(() => {
+        expect(history.location.pathname).toEqual('/appointments/new')
       })
-      wrapper.update()
-
-      expect(history.location.pathname).toEqual('/appointments/new')
     })
   })
 })

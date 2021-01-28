@@ -1,21 +1,10 @@
-import '../../../__mocks__/matchMediaMock'
-
-import { Modal, Alert } from '@hospitalrun/components'
-import { act } from '@testing-library/react'
-import { mount } from 'enzyme'
+import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import React from 'react'
-import { Provider } from 'react-redux'
-import createMockStore from 'redux-mock-store'
-import thunk from 'redux-thunk'
 
-import PatientRepository from '../../../clients/db/PatientRepository'
-import TextInputWithLabelFormGroup from '../../../components/input/TextInputWithLabelFormGroup'
-import Patient from '../../../model/Patient'
 import NewAllergyModal from '../../../patients/allergies/NewAllergyModal'
-import * as patientSlice from '../../../patients/patient-slice'
-import { RootState } from '../../../store'
-
-const mockStore = createMockStore<RootState, any>([thunk])
+import Patient from '../../../shared/model/Patient'
+import { expectOneConsoleError } from '../../test-utils/console.utils'
 
 describe('New Allergy Modal', () => {
   const mockPatient = {
@@ -23,123 +12,41 @@ describe('New Allergy Modal', () => {
     givenName: 'someName',
   } as Patient
 
-  beforeEach(() => {
-    jest.spyOn(PatientRepository, 'saveOrUpdate').mockResolvedValue(mockPatient)
-    jest.spyOn(PatientRepository, 'find').mockResolvedValue(mockPatient)
-  })
+  const setup = () =>
+    render(<NewAllergyModal patientId={mockPatient.id} show onCloseButtonClick={jest.fn()} />)
 
   it('should render a modal with the correct labels', () => {
-    const store = mockStore({
-      patient: {
-        patient: {
-          id: '123',
-        },
-      },
-    } as any)
-    const wrapper = mount(
-      <Provider store={store}>
-        <NewAllergyModal show onCloseButtonClick={jest.fn()} />
-      </Provider>,
-    )
+    setup()
+    const modal = screen.getByRole('dialog')
+    const cancelButton = screen.getByRole('button', { name: /actions.cancel/i })
+    const successButton = screen.getByRole('button', { name: /patient.allergies.new/i })
 
-    const modal = wrapper.find(Modal)
-    expect(modal).toHaveLength(1)
-    expect(modal.prop('title')).toEqual('patient.allergies.new')
-    expect(modal.prop('closeButton')?.children).toEqual('actions.cancel')
-    expect(modal.prop('closeButton')?.color).toEqual('danger')
-    expect(modal.prop('successButton')?.children).toEqual('patient.allergies.new')
-    expect(modal.prop('successButton')?.color).toEqual('success')
-    expect(modal.prop('successButton')?.icon).toEqual('add')
+    expect(modal).toBeInTheDocument()
+    expect(screen.getByText('patient.allergies.new', { selector: 'div' })).toBeInTheDocument()
+    expect(cancelButton).toBeInTheDocument()
+    expect(cancelButton).toHaveClass('btn-danger')
+    expect(successButton).toBeInTheDocument()
+    expect(successButton).toHaveClass('btn-success')
+    expect(successButton.children[0]).toHaveAttribute('data-icon', 'plus')
   })
 
-  it('should display the errors', () => {
+  it('should display errors when there is an error saving', async () => {
+    const expectedErrorMessage = 'patient.allergies.error.unableToAdd'
     const expectedError = {
-      message: 'some error message',
-      name: 'some name message',
+      nameError: 'patient.allergies.error.nameRequired',
     }
-    const store = mockStore({
-      patient: {
-        patient: {
-          id: '123',
-        },
-        allergyError: expectedError,
-      },
-    } as any)
-    const wrapper = mount(
-      <Provider store={store}>
-        <NewAllergyModal show onCloseButtonClick={jest.fn()} />
-      </Provider>,
-    )
-    wrapper.update()
+    expectOneConsoleError(expectedError)
+    setup()
+    const successButton = screen.getByRole('button', { name: /patient.allergies.new/i })
+    const nameField = screen.getByLabelText(/patient.allergies.allergyName/i)
 
-    const alert = wrapper.find(Alert)
-    const nameField = wrapper.find(TextInputWithLabelFormGroup)
+    userEvent.click(successButton)
+    const alert = await screen.findByRole('alert')
 
-    expect(alert.prop('title')).toEqual('states.error')
-    expect(alert.prop('message')).toEqual(expectedError.message)
-    expect(nameField.prop('isInvalid')).toBeTruthy()
-    expect(nameField.prop('feedback')).toEqual(expectedError.name)
-  })
-
-  describe('cancel', () => {
-    it('should call the onCloseButtonClick function when the close button is clicked', () => {
-      const onCloseButtonClickSpy = jest.fn()
-      const store = mockStore({
-        patient: {
-          patient: {
-            id: '123',
-          },
-        },
-      } as any)
-      const wrapper = mount(
-        <Provider store={store}>
-          <NewAllergyModal show onCloseButtonClick={onCloseButtonClickSpy} />
-        </Provider>,
-      )
-      act(() => {
-        const modal = wrapper.find(Modal)
-        const { onClick } = modal.prop('closeButton') as any
-        onClick()
-      })
-
-      expect(onCloseButtonClickSpy).toHaveBeenCalledTimes(1)
-    })
-  })
-
-  describe('save', () => {
-    it('should dispatch add allergy', () => {
-      jest.spyOn(patientSlice, 'addAllergy')
-      const expectedName = 'expected name'
-      const patient = {
-        id: '123',
-      }
-      const store = mockStore({
-        patient: {
-          patient,
-        },
-      } as any)
-      const wrapper = mount(
-        <Provider store={store}>
-          <NewAllergyModal show onCloseButtonClick={jest.fn()} />
-        </Provider>,
-      )
-      wrapper.update()
-
-      act(() => {
-        const input = wrapper.findWhere((c) => c.prop('name') === 'name')
-        const onChange = input.prop('onChange')
-        onChange({ target: { value: expectedName } })
-      })
-
-      wrapper.update()
-
-      act(() => {
-        const modal = wrapper.find(Modal)
-        const onSave = (modal.prop('successButton') as any).onClick
-        onSave({} as React.MouseEvent<HTMLButtonElement>)
-      })
-
-      expect(patientSlice.addAllergy).toHaveBeenCalledWith(patient.id, { name: expectedName })
-    })
+    expect(alert).toBeInTheDocument()
+    expect(screen.getByText(/states.error/i)).toBeInTheDocument()
+    expect(screen.getByText(expectedErrorMessage)).toBeInTheDocument()
+    expect(nameField).toHaveClass('is-invalid')
+    expect(nameField.nextSibling).toHaveTextContent(expectedError.nameError)
   })
 })

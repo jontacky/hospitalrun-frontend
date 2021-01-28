@@ -1,14 +1,16 @@
 import { Row, Column } from '@hospitalrun/components'
-import React from 'react'
-import { useTranslation } from 'react-i18next'
+import React, { useEffect } from 'react'
 
-import LanguageSelector from '../components/input/LanguageSelector'
-import useTitle from '../page-header/useTitle'
+import { useUpdateTitle } from '../page-header/title/TitleContext'
+import LanguageSelector from '../shared/components/input/LanguageSelector'
+import useTranslator from '../shared/hooks/useTranslator'
 
 const Settings = () => {
-  const { t } = useTranslation()
-  useTitle(t('settings.label'))
-
+  const { t } = useTranslator()
+  const updateTitle = useUpdateTitle()
+  useEffect(() => {
+    updateTitle(t('settings.label'))
+  })
   return (
     <>
       <Row>

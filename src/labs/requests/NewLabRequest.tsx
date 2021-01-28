@@ -1,31 +1,44 @@
-import { Typeahead, Label, Button, Alert } from '@hospitalrun/components'
-import React, { useState } from 'react'
-import { useTranslation } from 'react-i18next'
-import { useDispatch, useSelector } from 'react-redux'
+import { Typeahead, Label, Button, Alert, Toast, Column, Row } from '@hospitalrun/components'
+import format from 'date-fns/format'
+import React, { useState, useEffect } from 'react'
+import { useSelector } from 'react-redux'
 import { useHistory } from 'react-router-dom'
 
-import useAddBreadcrumbs from '../../breadcrumbs/useAddBreadcrumbs'
-import PatientRepository from '../../clients/db/PatientRepository'
-import TextFieldWithLabelFormGroup from '../../components/input/TextFieldWithLabelFormGroup'
-import TextInputWithLabelFormGroup from '../../components/input/TextInputWithLabelFormGroup'
-import Lab from '../../model/Lab'
-import Patient from '../../model/Patient'
-import useTitle from '../../page-header/useTitle'
-import { RootState } from '../../store'
-import { requestLab } from '../lab-slice'
+import useAddBreadcrumbs from '../../page-header/breadcrumbs/useAddBreadcrumbs'
+import { useUpdateTitle } from '../../page-header/title/TitleContext'
+import SelectWithLabelFormGroup, {
+  Option,
+} from '../../shared/components/input/SelectWithLabelFormGroup'
+import TextFieldWithLabelFormGroup from '../../shared/components/input/TextFieldWithLabelFormGroup'
+import TextInputWithLabelFormGroup from '../../shared/components/input/TextInputWithLabelFormGroup'
+import PatientRepository from '../../shared/db/PatientRepository'
+import useTranslator from '../../shared/hooks/useTranslator'
+import Lab from '../../shared/model/Lab'
+import Patient from '../../shared/model/Patient'
+import { RootState } from '../../shared/store'
+import useRequestLab from '../hooks/useRequestLab'
+import { LabError } from '../utils/validate-lab'
 
 const NewLabRequest = () => {
-  const { t } = useTranslation()
-  const dispatch = useDispatch()
+  const { t } = useTranslator()
   const history = useHistory()
-  useTitle(t('labs.requests.new'))
-  const { status, error } = useSelector((state: RootState) => state.lab)
+  const { user } = useSelector((state: RootState) => state.user)
+  const [mutate] = useRequestLab()
+  const [newNote, setNewNote] = useState('')
+  const [error, setError] = useState<LabError | undefined>(undefined)
+  const [visitOptions, setVisitOptions] = useState([] as Option[])
 
+  const updateTitle = useUpdateTitle()
+  useEffect(() => {
+    updateTitle(t('labs.requests.new'))
+  })
   const [newLabRequest, setNewLabRequest] = useState({
-    patientId: '',
+    patient: '',
     type: '',
-    notes: '',
     status: 'requested',
+    requestedBy: user?.id || '',
+    requestedOn: '',
+    visitId: '',
   })
 
   const breadcrumbs = [
@@ -37,10 +50,26 @@ const NewLabRequest = () => {
   useAddBreadcrumbs(breadcrumbs)
 
   const onPatientChange = (patient: Patient) => {
-    setNewLabRequest((previousNewLabRequest) => ({
-      ...previousNewLabRequest,
-      patientId: patient.id,
-    }))
+    if (patient) {
+      const visits = patient.visits?.map((v) => ({
+        label: `${v.type} at ${format(new Date(v.startDateTime), 'yyyy-MM-dd hh:mm a')}`,
+        value: v.id,
+      })) as Option[]
+
+      setVisitOptions(visits)
+      setNewLabRequest((previousNewLabRequest) => ({
+        ...previousNewLabRequest,
+        patient: patient.id,
+        fullName: patient.fullName,
+      }))
+    } else {
+      setVisitOptions([])
+      setNewLabRequest((previousNewLabRequest) => ({
+        ...previousNewLabRequest,
+        patient: '',
+        visitId: '',
+      }))
+    }
   }
 
   const onLabTypeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -53,50 +82,91 @@ const NewLabRequest = () => {
 
   const onNoteChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
     const notes = event.currentTarget.value
+    setNewNote(notes)
     setNewLabRequest((previousNewLabRequest) => ({
       ...previousNewLabRequest,
-      notes,
+      notes: [notes],
     }))
   }
 
   const onSave = async () => {
-    const newLab = newLabRequest as Lab
-    const onSuccess = (createdLab: Lab) => {
-      history.push(`/labs/${createdLab.id}`)
+    try {
+      const newLab = await mutate(newLabRequest as Lab)
+      history.push(`/labs/${newLab?.id}`)
+      Toast(
+        'success',
+        t('states.success'),
+        `${t('labs.successfullyCreated')} ${newLab?.type} ${t('labs.lab.for')} ${
+          (await PatientRepository.find(newLab?.patient || '')).fullName
+        }`,
+      )
+      setError(undefined)
+    } catch (e) {
+      setError(e)
     }
+  }
 
-    dispatch(requestLab(newLab, onSuccess))
+  const onVisitChange = (visitId: string) => {
+    setNewLabRequest((previousNewLabRequest) => ({
+      ...previousNewLabRequest,
+      visitId,
+    }))
   }
 
   const onCancel = () => {
     history.push('/labs')
   }
 
+  const defaultSelectedVisitsOption = () => {
+    if (visitOptions !== undefined) {
+      return visitOptions.filter(({ value }) => value === newLabRequest.visitId)
+    }
+    return []
+  }
+
   return (
     <>
-      {status === 'error' && (
-        <Alert color="danger" title={t('states.error')} message={t(error.message || '')} />
-      )}
+      {error && <Alert color="danger" title={t('states.error')} message={t(error.message || '')} />}
       <form>
-        <div className="form-group patient-typeahead">
-          <Label htmlFor="patientTypeahead" isRequired text={t('labs.lab.patient')} />
-          <Typeahead
-            id="patientTypeahead"
-            placeholder={t('labs.lab.patient')}
-            onChange={(p: Patient[]) => onPatientChange(p[0])}
-            onSearch={async (query: string) => PatientRepository.search(query)}
-            searchAccessor="fullName"
-            renderMenuItemChildren={(p: Patient) => <div>{`${p.fullName} (${p.code})`}</div>}
-            isInvalid={!!error.patient}
-          />
-        </div>
+        <Row>
+          <Column>
+            <div className="form-group patient-typeahead">
+              <Label htmlFor="patientTypeahead" isRequired text={t('labs.lab.patient')} />
+              <Typeahead
+                id="patientTypeahead"
+                placeholder={t('labs.lab.patient')}
+                onChange={(p: Patient[]) => onPatientChange(p[0])}
+                onSearch={async (query: string) => PatientRepository.search(query)}
+                searchAccessor="fullName"
+                renderMenuItemChildren={(p: Patient) => <div>{`${p.fullName} (${p.code})`}</div>}
+                isInvalid={!!error?.patient}
+                feedback={t(error?.patient as string)}
+              />
+            </div>
+          </Column>
+          <Column>
+            <div className="form-group">
+              <SelectWithLabelFormGroup
+                name="visit"
+                label={t('patient.visit')}
+                isRequired
+                isEditable={newLabRequest.patient !== undefined}
+                options={visitOptions || []}
+                defaultSelected={defaultSelectedVisitsOption()}
+                onChange={(values) => {
+                  onVisitChange(values[0])
+                }}
+              />
+            </div>
+          </Column>
+        </Row>
         <TextInputWithLabelFormGroup
           name="labType"
           label={t('labs.lab.type')}
           isRequired
           isEditable
-          isInvalid={!!error.type}
-          feedback={t(error.type as string)}
+          isInvalid={!!error?.type}
+          feedback={t(error?.type as string)}
           value={newLabRequest.type}
           onChange={onLabTypeChange}
         />
@@ -105,15 +175,16 @@ const NewLabRequest = () => {
             name="labNotes"
             label={t('labs.lab.notes')}
             isEditable
-            value={newLabRequest.notes}
+            value={newNote}
             onChange={onNoteChange}
           />
         </div>
         <div className="row float-right">
           <div className="btn-group btn-group-lg mt-3">
             <Button className="mr-2" color="success" onClick={onSave}>
-              {t('actions.save')}
+              {t('labs.requests.new')}
             </Button>
+
             <Button color="danger" onClick={onCancel}>
               {t('actions.cancel')}
             </Button>

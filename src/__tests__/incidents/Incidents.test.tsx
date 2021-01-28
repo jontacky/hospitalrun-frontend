@@ -1,122 +1,104 @@
-import '../../__mocks__/matchMediaMock'
-
-import { act } from '@testing-library/react'
-import { mount } from 'enzyme'
+import { render, screen, waitFor } from '@testing-library/react'
+import { createMemoryHistory } from 'history'
 import React from 'react'
 import { Provider } from 'react-redux'
-import { MemoryRouter } from 'react-router-dom'
+import { Router, Route } from 'react-router-dom'
 import createMockStore from 'redux-mock-store'
 import thunk from 'redux-thunk'
 
-import IncidentRepository from '../../clients/db/IncidentRepository'
 import Incidents from '../../incidents/Incidents'
-import ReportIncident from '../../incidents/report/ReportIncident'
-import ViewIncident from '../../incidents/view/ViewIncident'
-import Incident from '../../model/Incident'
-import Permissions from '../../model/Permissions'
-import { RootState } from '../../store'
+import * as titleUtil from '../../page-header/title/TitleContext'
+import IncidentRepository from '../../shared/db/IncidentRepository'
+import Incident from '../../shared/model/Incident'
+import Permissions from '../../shared/model/Permissions'
+import { RootState } from '../../shared/store'
 
 const mockStore = createMockStore<RootState, any>([thunk])
+
+const expectedIncident = {
+  id: '1234',
+  code: '1234',
+  date: new Date().toISOString(),
+  reportedOn: new Date().toISOString(),
+  reportedBy: 'some user',
+} as Incident
+
+function setup(permissions: Permissions[], path: string) {
+  jest.spyOn(IncidentRepository, 'search').mockResolvedValue([])
+  jest.spyOn(IncidentRepository, 'find').mockResolvedValue(expectedIncident)
+
+  const store = mockStore({
+    user: { permissions },
+    breadcrumbs: { breadcrumbs: [] },
+    components: { sidebarCollapsed: false },
+  } as any)
+  const history = createMemoryHistory({ initialEntries: [path] })
+
+  return {
+    history,
+    ...render(
+      <Provider store={store}>
+        <Router history={history}>
+          <Route path="/incidents/:id">
+            <titleUtil.TitleProvider>
+              <Incidents />
+            </titleUtil.TitleProvider>
+          </Route>
+        </Router>
+      </Provider>,
+    ),
+  }
+}
 
 describe('Incidents', () => {
   describe('routing', () => {
     describe('/incidents/new', () => {
-      it('should render the new incident screen when /incidents/new is accessed', () => {
-        const expectedIncident = {
-          id: '1234',
-          code: '1234',
-        } as Incident
-        jest.spyOn(IncidentRepository, 'find').mockResolvedValue(expectedIncident)
-        const store = mockStore({
-          title: 'test',
-          user: { permissions: [Permissions.ReportIncident] },
-          breadcrumbs: { breadcrumbs: [] },
-          components: { sidebarCollapsed: false },
-          incident: {
-            incident: expectedIncident,
-          },
-        } as any)
+      it('The new incident screen when /incidents/new is accessed', () => {
+        setup([Permissions.ReportIncident], '/incidents/new')
 
-        const wrapper = mount(
-          <Provider store={store}>
-            <MemoryRouter initialEntries={['/incidents/new']}>
-              <Incidents />
-            </MemoryRouter>
-          </Provider>,
-        )
-
-        expect(wrapper.find(ReportIncident)).toHaveLength(1)
+        expect(screen.getByRole('form', { name: /report incident form/i })).toBeInTheDocument()
       })
 
-      it('should not navigate to /incidents/new if the user does not have ReportIncident permissions', () => {
-        const store = mockStore({
-          title: 'test',
-          user: { permissions: [] },
-          breadcrumbs: { breadcrumbs: [] },
-          components: { sidebarCollapsed: false },
-        } as any)
+      it('should not navigate to /incidents/new if the user does not have ReportIncident permissions', async () => {
+        const { history } = setup([], '/incidents/new')
 
-        const wrapper = mount(
-          <Provider store={store}>
-            <MemoryRouter initialEntries={['/incidents/new']}>
-              <Incidents />
-            </MemoryRouter>
-          </Provider>,
-        )
+        await waitFor(() => {
+          expect(history.location.pathname).toBe('/')
+        })
+      })
+    })
 
-        expect(wrapper.find(ReportIncident)).toHaveLength(0)
+    describe('/incidents/visualize', () => {
+      it('The incident visualize screen when /incidents/visualize is accessed', async () => {
+        const { container } = setup([Permissions.ViewIncidentWidgets], '/incidents/visualize')
+
+        await waitFor(() => {
+          expect(container.querySelector('canvas')).toBeInTheDocument()
+        })
+      })
+
+      it('should not navigate to /incidents/visualize if the user does not have ViewIncidentWidgets permissions', async () => {
+        const { history } = setup([], '/incidents/visualize')
+
+        await waitFor(() => {
+          expect(history.location.pathname).toBe('/')
+        })
       })
     })
 
     describe('/incidents/:id', () => {
-      it('should render the view incident screen when /incidents/:id is accessed', async () => {
-        const store = mockStore({
-          title: 'test',
-          user: { permissions: [Permissions.ViewIncident] },
-          breadcrumbs: { breadcrumbs: [] },
-          components: { sidebarCollapsed: false },
-          incident: {
-            incident: {
-              id: '1234',
-              code: '1234 ',
-              date: new Date().toISOString(),
-              reportedOn: new Date().toISOString(),
-            },
-          },
-        } as any)
+      it('The view incident screen when /incidents/:id is accessed', async () => {
+        setup([Permissions.ViewIncident], `/incidents/${expectedIncident.id}`)
 
-        let wrapper: any
-
-        await act(async () => {
-          wrapper = await mount(
-            <Provider store={store}>
-              <MemoryRouter initialEntries={['/incidents/1234']}>
-                <Incidents />
-              </MemoryRouter>
-            </Provider>,
-          )
-
-          expect(wrapper.find(ViewIncident)).toHaveLength(1)
-        })
+        expect(await screen.findByText(expectedIncident.reportedBy)).toBeInTheDocument()
       })
 
       it('should not navigate to /incidents/:id if the user does not have ViewIncident permissions', async () => {
-        const store = mockStore({
-          title: 'test',
-          user: { permissions: [] },
-          breadcrumbs: { breadcrumbs: [] },
-          components: { sidebarCollapsed: false },
-        } as any)
+        const { history } = setup([], `/incidents/${expectedIncident.id}`)
 
-        const wrapper = await mount(
-          <Provider store={store}>
-            <MemoryRouter initialEntries={['/incidents/1234']}>
-              <Incidents />
-            </MemoryRouter>
-          </Provider>,
-        )
-
-        expect(wrapper.find(ViewIncident)).toHaveLength(0)
+        await waitFor(() => {
+          expect(history.location.pathname).toBe('/')
+        })
       })
     })
   })

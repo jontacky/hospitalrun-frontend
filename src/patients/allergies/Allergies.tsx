@@ -1,21 +1,23 @@
-import { Button, List, ListItem, Alert } from '@hospitalrun/components'
+import { Button } from '@hospitalrun/components'
 import React, { useState } from 'react'
-import { useTranslation } from 'react-i18next'
 import { useSelector } from 'react-redux'
+import { Route, Switch } from 'react-router-dom'
 
-import useAddBreadcrumbs from '../../breadcrumbs/useAddBreadcrumbs'
-import Allergy from '../../model/Allergy'
-import Patient from '../../model/Patient'
-import Permissions from '../../model/Permissions'
-import { RootState } from '../../store'
+import useAddBreadcrumbs from '../../page-header/breadcrumbs/useAddBreadcrumbs'
+import useTranslator from '../../shared/hooks/useTranslator'
+import Patient from '../../shared/model/Patient'
+import Permissions from '../../shared/model/Permissions'
+import { RootState } from '../../shared/store'
+import AllergiesList from './AllergiesList'
 import NewAllergyModal from './NewAllergyModal'
+import ViewAllergy from './ViewAllergy'
 
 interface AllergiesProps {
   patient: Patient
 }
 
 const Allergies = (props: AllergiesProps) => {
-  const { t } = useTranslation()
+  const { t } = useTranslator()
   const { patient } = props
   const { permissions } = useSelector((state: RootState) => state.user)
   const [showNewAllergyModal, setShowNewAllergyModal] = useState(false)
@@ -46,19 +48,16 @@ const Allergies = (props: AllergiesProps) => {
         </div>
       </div>
       <br />
-      {(!patient.allergies || patient.allergies.length === 0) && (
-        <Alert
-          color="warning"
-          title={t('patient.allergies.warning.noAllergies')}
-          message={t('patient.allergies.addAllergyAbove')}
-        />
-      )}
-      <List>
-        {patient.allergies?.map((a: Allergy) => (
-          <ListItem key={a.id}>{a.name}</ListItem>
-        ))}
-      </List>
+      <Switch>
+        <Route exact path="/patients/:id/allergies">
+          <AllergiesList patientId={patient.id} />
+        </Route>
+        <Route exact path="/patients/:id/allergies/:allergyId">
+          <ViewAllergy />
+        </Route>
+      </Switch>
       <NewAllergyModal
+        patientId={patient.id}
         show={showNewAllergyModal}
         onCloseButtonClick={() => setShowNewAllergyModal(false)}
       />

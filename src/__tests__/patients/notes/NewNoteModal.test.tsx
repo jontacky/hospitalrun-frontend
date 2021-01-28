@@ -1,169 +1,120 @@
-import '../../../__mocks__/matchMediaMock'
-
-import { Alert, Modal } from '@hospitalrun/components'
-import { act } from '@testing-library/react'
-import { mount } from 'enzyme'
+import { screen, render, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import React from 'react'
-import { Provider } from 'react-redux'
-import createMockStore from 'redux-mock-store'
-import thunk from 'redux-thunk'
 
-import PatientRepository from '../../../clients/db/PatientRepository'
-import TextFieldWithLabelFormGroup from '../../../components/input/TextFieldWithLabelFormGroup'
-import Patient from '../../../model/Patient'
 import NewNoteModal from '../../../patients/notes/NewNoteModal'
-import * as patientSlice from '../../../patients/patient-slice'
-import { RootState } from '../../../store'
-
-const mockStore = createMockStore<RootState, any>([thunk])
+import PatientRepository from '../../../shared/db/PatientRepository'
+import Patient from '../../../shared/model/Patient'
+import { expectOneConsoleError } from '../../test-utils/console.utils'
 
 describe('New Note Modal', () => {
-  beforeEach(() => {
-    jest.spyOn(PatientRepository, 'find')
-    jest.spyOn(PatientRepository, 'saveOrUpdate')
-  })
+  const mockPatient = {
+    id: '123',
+    givenName: 'someName',
+  } as Patient
 
-  it('should render a modal with the correct labels', () => {
-    const expectedPatient = {
-      id: '1234',
-      givenName: 'some name',
-    }
-    const store = mockStore({
-      patient: {
-        patient: expectedPatient,
-      },
-    } as any)
-    const wrapper = mount(
-      <Provider store={store}>
-        <NewNoteModal show onCloseButtonClick={jest.fn()} toggle={jest.fn()} />
-      </Provider>,
+  const onCloseSpy = jest.fn()
+  const setup = () => {
+    jest.spyOn(PatientRepository, 'saveOrUpdate').mockResolvedValue(mockPatient)
+    jest.spyOn(PatientRepository, 'find').mockResolvedValue(mockPatient)
+    return render(
+      <NewNoteModal
+        show
+        onCloseButtonClick={onCloseSpy}
+        toggle={jest.fn()}
+        patientId={mockPatient.id}
+      />,
     )
-    const modal = wrapper.find(Modal)
-    expect(modal).toHaveLength(1)
-    expect(modal.prop('title')).toEqual('patient.notes.new')
-    expect(modal.prop('closeButton')?.children).toEqual('actions.cancel')
-    expect(modal.prop('closeButton')?.color).toEqual('danger')
-    expect(modal.prop('successButton')?.children).toEqual('patient.notes.new')
-    expect(modal.prop('successButton')?.color).toEqual('success')
-    expect(modal.prop('successButton')?.icon).toEqual('add')
+  }
+
+  it('should render a modal with the correct labels', async () => {
+    setup()
+
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
+    expect(
+      screen.getByText(/patient\.notes\.new/i, { selector: 'script, style, button' }),
+    ).toBeInTheDocument()
+
+    const successButton = screen.getByRole('button', {
+      name: /patient\.notes\.new/i,
+    })
+    const cancelButton = screen.getByRole('button', {
+      name: /actions\.cancel/i,
+    })
+
+    expect(cancelButton).toHaveClass('btn-danger')
+    expect(successButton).toHaveClass('btn-success')
+    expect(within(successButton).getByRole('img')).toHaveAttribute('data-icon', 'plus')
   })
 
   it('should render a notes rich text editor', () => {
-    const expectedPatient = {
-      id: '1234',
-      givenName: 'some name',
-    }
-    const store = mockStore({
-      patient: {
-        patient: expectedPatient,
-      },
-    } as any)
-    const wrapper = mount(
-      <Provider store={store}>
-        <NewNoteModal show onCloseButtonClick={jest.fn()} toggle={jest.fn()} />
-      </Provider>,
-    )
+    setup()
 
-    const noteTextField = wrapper.find(TextFieldWithLabelFormGroup)
-    expect(noteTextField.prop('label')).toEqual('patient.note')
-    expect(noteTextField.prop('isRequired')).toBeTruthy()
-    expect(noteTextField).toHaveLength(1)
+    expect(screen.getByRole('textbox')).toBeInTheDocument()
+    expect(within(screen.getByText('patient.note')).getByRole('img')).toHaveAttribute(
+      'data-icon',
+      'asterisk',
+    )
   })
 
-  it('should render note error', () => {
-    const expectedPatient = {
-      id: '1234',
-      givenName: 'some name',
-    }
+  it('should render note error', async () => {
+    const expectedErrorMessage = 'patient.notes.error.unableToAdd'
     const expectedError = {
-      message: 'some message',
-      note: 'some note error',
+      noteError: 'patient.notes.error.noteRequired',
     }
-    const store = mockStore({
-      patient: {
-        patient: expectedPatient,
-        noteError: expectedError,
-      },
-    } as any)
-    const wrapper = mount(
-      <Provider store={store}>
-        <NewNoteModal show onCloseButtonClick={jest.fn()} toggle={jest.fn()} />
-      </Provider>,
+    expectOneConsoleError(expectedError)
+
+    setup()
+
+    userEvent.click(
+      screen.getByRole('button', {
+        name: /patient\.notes\.new/i,
+      }),
     )
 
-    const alert = wrapper.find(Alert)
-    const noteTextField = wrapper.find(TextFieldWithLabelFormGroup)
-    expect(alert.prop('title')).toEqual('states.error')
-    expect(alert.prop('message')).toEqual(expectedError.message)
-    expect(noteTextField.prop('isInvalid')).toBeTruthy()
-    expect(noteTextField.prop('feedback')).toEqual(expectedError.note)
+    expect(await screen.findByRole('alert')).toBeInTheDocument()
+    expect(screen.getByText(/states.error/i)).toBeInTheDocument()
+    expect(screen.getByText(expectedErrorMessage)).toBeInTheDocument()
+    expect(screen.getByText(expectedError.noteError)).toBeInTheDocument()
+    expect(screen.getByRole('textbox')).toHaveClass('is-invalid')
   })
 
   describe('on cancel', () => {
-    it('should call the onCloseButtonCLick function when the cancel button is clicked', () => {
-      const onCloseButtonClickSpy = jest.fn()
-      const expectedPatient = {
-        id: '1234',
-        givenName: 'some name',
-      }
-      const store = mockStore({
-        patient: {
-          patient: expectedPatient,
-        },
-      } as any)
-      const wrapper = mount(
-        <Provider store={store}>
-          <NewNoteModal show onCloseButtonClick={onCloseButtonClickSpy} toggle={jest.fn()} />
-        </Provider>,
+    it('should call the onCloseButtonCLick function when the cancel button is clicked', async () => {
+      setup()
+
+      userEvent.click(
+        screen.getByRole('button', {
+          name: /actions\.cancel/i,
+        }),
       )
-
-      act(() => {
-        const modal = wrapper.find(Modal)
-        const { onClick } = modal.prop('closeButton') as any
-        onClick()
-      })
-
-      expect(onCloseButtonClickSpy).toHaveBeenCalledTimes(1)
+      await waitFor(() => expect(onCloseSpy).toHaveBeenCalledTimes(1))
     })
   })
 
   describe('on save', () => {
-    it('should dispatch add note', () => {
+    it('should dispatch add note', async () => {
       const expectedNote = 'some note'
-      jest.spyOn(patientSlice, 'addNote')
-      const expectedPatient = {
-        id: '1234',
-        givenName: 'some name',
-      }
-      const store = mockStore({
-        patient: {
-          patient: expectedPatient,
-        },
-      } as any)
+      setup()
 
-      jest.spyOn(PatientRepository, 'find').mockResolvedValue(expectedPatient as Patient)
-      jest.spyOn(PatientRepository, 'saveOrUpdate').mockResolvedValue(expectedPatient as Patient)
+      const noteTextField = screen.getByRole('textbox')
+      userEvent.type(noteTextField, expectedNote)
 
-      const wrapper = mount(
-        <Provider store={store}>
-          <NewNoteModal show onCloseButtonClick={jest.fn()} toggle={jest.fn()} />
-        </Provider>,
+      userEvent.click(
+        screen.getByRole('button', {
+          name: /patient\.notes\.new/i,
+        }),
       )
-
-      act(() => {
-        const noteTextField = wrapper.find(TextFieldWithLabelFormGroup)
-        const onChange = noteTextField.prop('onChange') as any
-        onChange({ currentTarget: { value: expectedNote } })
+      await waitFor(() => {
+        expect(PatientRepository.saveOrUpdate).toHaveBeenCalledTimes(1)
       })
-
-      wrapper.update()
-      act(() => {
-        const modal = wrapper.find(Modal)
-        const { onClick } = modal.prop('successButton') as any
-        onClick()
-      })
-
-      expect(patientSlice.addNote).toHaveBeenCalledWith(expectedPatient.id, { text: expectedNote })
+      expect(PatientRepository.saveOrUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          notes: [expect.objectContaining({ text: expectedNote })],
+        }),
+      )
+      // Does the form reset value back to blank?
+      expect(noteTextField).toHaveValue('')
     })
   })
 })

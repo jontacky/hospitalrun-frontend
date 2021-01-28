@@ -1,13 +1,16 @@
-import { Button, List, ListItem, Alert } from '@hospitalrun/components'
+import { Button } from '@hospitalrun/components'
 import React, { useState } from 'react'
-import { useTranslation } from 'react-i18next'
 import { useSelector } from 'react-redux'
+import { Route, Switch } from 'react-router-dom'
 
-import Note from '../../model/Note'
-import Patient from '../../model/Patient'
-import Permissions from '../../model/Permissions'
-import { RootState } from '../../store'
+import useAddBreadcrumbs from '../../page-header/breadcrumbs/useAddBreadcrumbs'
+import useTranslator from '../../shared/hooks/useTranslator'
+import Patient from '../../shared/model/Patient'
+import Permissions from '../../shared/model/Permissions'
+import { RootState } from '../../shared/store'
 import NewNoteModal from './NewNoteModal'
+import NotesList from './NotesList'
+import ViewNote from './ViewNote'
 
 interface Props {
   patient: Patient
@@ -15,9 +18,17 @@ interface Props {
 
 const NoteTab = (props: Props) => {
   const { patient } = props
-  const { t } = useTranslation()
+  const { t } = useTranslator()
   const { permissions } = useSelector((state: RootState) => state.user)
   const [showNewNoteModal, setShowNoteModal] = useState<boolean>(false)
+
+  const breadcrumbs = [
+    {
+      i18nKey: 'patient.notes.label',
+      location: `/patients/${patient.id}/notes`,
+    },
+  ]
+  useAddBreadcrumbs(breadcrumbs)
 
   const onNewNoteClick = () => {
     setShowNoteModal(true)
@@ -45,25 +56,20 @@ const NoteTab = (props: Props) => {
         </div>
       </div>
       <br />
-      {(!patient.notes || patient.notes.length === 0) && (
-        <Alert
-          color="warning"
-          title={t('patient.notes.warning.noNotes')}
-          message={t('patient.notes.addNoteAbove')}
-        />
-      )}
-      <List>
-        {patient.notes?.map((note: Note) => (
-          <ListItem key={note.date}>
-            {new Date(note.date).toLocaleString()}
-            <p>{note.text}</p>
-          </ListItem>
-        ))}
-      </List>
+      <Switch>
+        <Route exact path="/patients/:id/notes">
+          <NotesList patientId={patient.id} />
+        </Route>
+        <Route exact path="/patients/:id/notes/:noteId">
+          <ViewNote />
+        </Route>
+      </Switch>
+
       <NewNoteModal
         show={showNewNoteModal}
         toggle={closeNewNoteModal}
         onCloseButtonClick={closeNewNoteModal}
+        patientId={patient.id}
       />
     </div>
   )

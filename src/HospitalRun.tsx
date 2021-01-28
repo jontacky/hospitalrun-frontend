@@ -1,25 +1,27 @@
 import { Toaster } from '@hospitalrun/components'
 import React from 'react'
 import { useSelector } from 'react-redux'
-import { Switch, Route } from 'react-router-dom'
+import { Route, Switch } from 'react-router-dom'
 
-import Breadcrumbs from './breadcrumbs/Breadcrumbs'
-import Navbar from './components/Navbar'
-import { NetworkStatusMessage } from './components/network-status'
-import PrivateRoute from './components/PrivateRoute'
-import Sidebar from './components/Sidebar'
 import Dashboard from './dashboard/Dashboard'
+import Imagings from './imagings/Imagings'
 import Incidents from './incidents/Incidents'
 import Labs from './labs/Labs'
-import { ButtonBarProvider } from './page-header/ButtonBarProvider'
-import ButtonToolBar from './page-header/ButtonToolBar'
+import Medications from './medications/Medications'
+import Breadcrumbs from './page-header/breadcrumbs/Breadcrumbs'
+import { ButtonBarProvider } from './page-header/button-toolbar/ButtonBarProvider'
+import ButtonToolBar from './page-header/button-toolbar/ButtonToolBar'
+import { useTitle } from './page-header/title/TitleContext'
 import Patients from './patients/Patients'
 import Appointments from './scheduling/appointments/Appointments'
 import Settings from './settings/Settings'
-import { RootState } from './store'
+import Navbar from './shared/components/navbar/Navbar'
+import { NetworkStatusMessage } from './shared/components/network-status'
+import Sidebar from './shared/components/Sidebar'
+import { RootState } from './shared/store'
 
 const HospitalRun = () => {
-  const { title } = useSelector((state: RootState) => state.title)
+  const { title } = useTitle()
   const { sidebarCollapsed } = useSelector((state: RootState) => state.components)
 
   return (
@@ -27,7 +29,9 @@ const HospitalRun = () => {
       <NetworkStatusMessage />
       <Navbar />
       <div className="container-fluid">
-        <Sidebar />
+        <div className="col-md-2">
+          <Sidebar />
+        </div>
         <ButtonBarProvider>
           <div className="row">
             <main
@@ -44,11 +48,13 @@ const HospitalRun = () => {
               <div>
                 <Switch>
                   <Route exact path="/" component={Dashboard} />
-                  <PrivateRoute isAuthenticated path="/appointments" component={Appointments} />
-                  <PrivateRoute isAuthenticated path="/patients" component={Patients} />
-                  <PrivateRoute isAuthenticated path="/labs" component={Labs} />
-                  <PrivateRoute isAuthenticated path="/incidents" component={Incidents} />
-                  <PrivateRoute isAuthenticated path="/settings" component={Settings} />
+                  <Route path="/appointments" component={Appointments} />
+                  <Route path="/patients" component={Patients} />
+                  <Route path="/labs" component={Labs} />
+                  <Route path="/medications" component={Medications} />
+                  <Route path="/incidents" component={Incidents} />
+                  <Route path="/settings" component={Settings} />
+                  <Route path="/imaging" component={Imagings} />
                 </Switch>
               </div>
               <Toaster autoClose={5000} hideProgressBar draggable />

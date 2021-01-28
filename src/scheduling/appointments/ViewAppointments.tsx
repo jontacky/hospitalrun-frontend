@@ -1,15 +1,15 @@
 import { Calendar, Button } from '@hospitalrun/components'
 import React, { useEffect, useState } from 'react'
-import { useTranslation } from 'react-i18next'
-import { useSelector, useDispatch } from 'react-redux'
 import { useHistory } from 'react-router-dom'
 
-import useAddBreadcrumbs from '../../breadcrumbs/useAddBreadcrumbs'
-import PatientRepository from '../../clients/db/PatientRepository'
-import { useButtonToolbarSetter } from '../../page-header/ButtonBarProvider'
-import useTitle from '../../page-header/useTitle'
-import { RootState } from '../../store'
-import { fetchAppointments } from './appointments-slice'
+import useAddBreadcrumbs from '../../page-header/breadcrumbs/useAddBreadcrumbs'
+import { useButtonToolbarSetter } from '../../page-header/button-toolbar/ButtonBarProvider'
+import { useUpdateTitle } from '../../page-header/title/TitleContext'
+import Loading from '../../shared/components/Loading'
+import PatientRepository from '../../shared/db/PatientRepository'
+import useTranslator from '../../shared/hooks/useTranslator'
+import Appointment from '../../shared/model/Appointment'
+import useAppointments from '../hooks/useAppointments'
 
 interface Event {
   id: string
@@ -22,17 +22,18 @@ interface Event {
 const breadcrumbs = [{ i18nKey: 'scheduling.appointments.label', location: '/appointments' }]
 
 const ViewAppointments = () => {
-  const { t } = useTranslation()
+  const { t } = useTranslator()
   const history = useHistory()
-  useTitle(t('scheduling.appointments.label'))
-  const dispatch = useDispatch()
-  const { appointments } = useSelector((state: RootState) => state.appointments)
+  const updateTitle = useUpdateTitle()
+  useEffect(() => {
+    updateTitle(t('scheduling.appointments.label'))
+  })
+  const { data: appointments, isLoading } = useAppointments()
   const [events, setEvents] = useState<Event[]>([])
   const setButtonToolBar = useButtonToolbarSetter()
   useAddBreadcrumbs(breadcrumbs, true)
 
   useEffect(() => {
-    dispatch(fetchAppointments())
     setButtonToolBar([
       <Button
         key="newAppointmentButton"
@@ -48,30 +49,32 @@ const ViewAppointments = () => {
     return () => {
       setButtonToolBar([])
     }
-  }, [dispatch, setButtonToolBar, history, t])
+  }, [setButtonToolBar, history, t])
 
   useEffect(() => {
-    const getAppointments = async () => {
-      const newEvents = await Promise.all(
-        appointments.map(async (a) => {
-          const patient = await PatientRepository.find(a.patientId)
-          return {
-            id: a.id,
-            start: new Date(a.startDateTime),
-            end: new Date(a.endDateTime),
-            title: patient.fullName || '',
+    if (appointments && !isLoading) {
+      appointments.map(async (appointment: Appointment) => {
+        const patient = await PatientRepository.find(appointment.patient)
+        setEvents((eventsArray) => [
+          ...eventsArray,
+          {
+            id: appointment.id,
+            start: new Date(appointment.startDateTime),
+            end: new Date(appointment.endDateTime),
+            title: patient && patient.fullName ? patient.fullName : '',
             allDay: false,
-          }
-        }),
-      )
-
-      setEvents(newEvents)
+          },
+        ])
+      })
     }
-
-    if (appointments) {
-      getAppointments()
+    return () => {
+      setEvents([])
     }
-  }, [appointments])
+  }, [appointments, isLoading])
+
+  if (isLoading || appointments === undefined) {
+    return <Loading />
+  }
 
   return (
     <div>

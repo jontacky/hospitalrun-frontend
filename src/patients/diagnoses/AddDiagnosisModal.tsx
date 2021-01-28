@@ -1,92 +1,59 @@
-import { Modal, Alert } from '@hospitalrun/components'
+import { Modal } from '@hospitalrun/components'
 import React, { useState, useEffect } from 'react'
-import { useTranslation } from 'react-i18next'
-import { useDispatch, useSelector } from 'react-redux'
 
-import DatePickerWithLabelFormGroup from '../../components/input/DatePickerWithLabelFormGroup'
-import TextInputWithLabelFormGroup from '../../components/input/TextInputWithLabelFormGroup'
-import Diagnosis from '../../model/Diagnosis'
-import { RootState } from '../../store'
-import { addDiagnosis } from '../patient-slice'
+import useTranslator from '../../shared/hooks/useTranslator'
+import Diagnosis, { DiagnosisStatus } from '../../shared/model/Diagnosis'
+import Patient from '../../shared/model/Patient'
+import useAddPatientDiagnosis from '../hooks/useAddPatientDiagnosis'
+import { DiagnosisError } from '../util/validate-diagnosis'
+import DiagnosisForm from './DiagnosisForm'
 
-interface Props {
+interface NewDiagnosisModalProps {
+  patient: Patient
   show: boolean
   onCloseButtonClick: () => void
 }
 
-const AddDiagnosisModal = (props: Props) => {
-  const { show, onCloseButtonClick } = props
-  const dispatch = useDispatch()
-  const { diagnosisError, patient } = useSelector((state: RootState) => state.patient)
-  const { t } = useTranslation()
+const initialDiagnosisState = {
+  name: '',
+  diagnosisDate: new Date().toISOString(),
+  onsetDate: new Date().toISOString(),
+  abatementDate: new Date().toISOString(),
+  note: '',
+  visit: '',
+  status: DiagnosisStatus.Active,
+}
 
-  const [diagnosis, setDiagnosis] = useState({ name: '', diagnosisDate: new Date().toISOString() })
+const AddDiagnosisModal = (props: NewDiagnosisModalProps) => {
+  const { show, onCloseButtonClick, patient } = props
+  const { t } = useTranslator()
+  const [mutate] = useAddPatientDiagnosis()
 
+  const [diagnosis, setDiagnosis] = useState(initialDiagnosisState)
+  const [diagnosisError, setDiagnosisError] = useState<DiagnosisError | undefined>(undefined)
   useEffect(() => {
-    setDiagnosis({ name: '', diagnosisDate: new Date().toISOString() })
+    setDiagnosis(initialDiagnosisState)
   }, [show])
 
-  const onSaveButtonClick = () => {
-    dispatch(addDiagnosis(patient.id, diagnosis as Diagnosis))
+  const onDiagnosisChange = (newDiagnosis: Partial<Diagnosis>) => {
+    setDiagnosis(newDiagnosis as Diagnosis)
   }
-
-  const onNameChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const name = event.target.value
-    setDiagnosis((prevDiagnosis) => ({ ...prevDiagnosis, name }))
-  }
-
-  const onDiagnosisDateChange = (diagnosisDate: Date) => {
-    if (diagnosisDate) {
-      setDiagnosis((prevDiagnosis) => ({
-        ...prevDiagnosis,
-        diagnosisDate: diagnosisDate.toISOString(),
-      }))
+  const onSaveButtonClick = async () => {
+    try {
+      await mutate({ diagnosis, patientId: patient.id })
+      onCloseButtonClick()
+    } catch (e) {
+      setDiagnosisError(e)
     }
   }
 
   const body = (
-    <>
-      <form>
-        {diagnosisError && (
-          <Alert
-            color="danger"
-            title={t('states.error')}
-            message={t(diagnosisError?.message || '')}
-          />
-        )}
-        <div className="row">
-          <div className="col-md-12">
-            <div className="form-group">
-              <TextInputWithLabelFormGroup
-                name="name"
-                label={t('patient.diagnoses.diagnosisName')}
-                isEditable
-                placeholder={t('patient.diagnoses.diagnosisName')}
-                value={diagnosis.name}
-                onChange={onNameChange}
-                isRequired
-                feedback={t(diagnosisError?.name || '')}
-                isInvalid={!!diagnosisError?.name}
-              />
-            </div>
-          </div>
-        </div>
-        <div className="row">
-          <div className="col-md-12">
-            <DatePickerWithLabelFormGroup
-              name="diagnosisDate"
-              label={t('patient.diagnoses.diagnosisDate')}
-              value={new Date(diagnosis.diagnosisDate)}
-              isEditable
-              onChange={onDiagnosisDateChange}
-              isRequired
-              feedback={t(diagnosisError?.date || '')}
-              isInvalid={!!diagnosisError?.date}
-            />
-          </div>
-        </div>
-      </form>
-    </>
+    <DiagnosisForm
+      diagnosis={diagnosis}
+      diagnosisError={diagnosisError}
+      onChange={onDiagnosisChange}
+      patient={patient}
+    />
   )
   return (
     <Modal

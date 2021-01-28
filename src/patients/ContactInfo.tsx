@@ -1,12 +1,14 @@
 import { Spinner, Row, Column, Icon } from '@hospitalrun/components'
 import React, { useEffect, ReactElement } from 'react'
-import { useTranslation } from 'react-i18next'
 
-import SelectWithLabelFormGroup from '../components/input/SelectWithLableFormGroup'
-import TextFieldWithLabelFormGroup from '../components/input/TextFieldWithLabelFormGroup'
-import TextInputWithLabelFormGroup from '../components/input/TextInputWithLabelFormGroup'
-import { ContactInfoPiece } from '../model/ContactInformation'
-import { uuid } from '../util/uuid'
+import SelectWithLabelFormGroup, {
+  Option,
+} from '../shared/components/input/SelectWithLabelFormGroup'
+import TextFieldWithLabelFormGroup from '../shared/components/input/TextFieldWithLabelFormGroup'
+import TextInputWithLabelFormGroup from '../shared/components/input/TextInputWithLabelFormGroup'
+import useTranslator from '../shared/hooks/useTranslator'
+import { ContactInfoPiece } from '../shared/model/ContactInformation'
+import { uuid } from '../shared/util/uuid'
 import ContactInfoTypes from './ContactInfoTypes'
 
 interface Props {
@@ -22,7 +24,7 @@ interface Props {
 const ContactInfo = (props: Props): ReactElement => {
   const { component, data, errors, label, name, isEditable, onChange } = props
 
-  const { t } = useTranslation()
+  const { t } = useTranslator()
 
   useEffect(() => {
     if (onChange && data.length === 0) {
@@ -30,7 +32,7 @@ const ContactInfo = (props: Props): ReactElement => {
     }
   }, [data, onChange])
 
-  const typeOptions = Object.values(ContactInfoTypes).map((value) => ({
+  const typeOptions: Option[] = Object.values(ContactInfoTypes).map((value) => ({
     label: t(`patient.contactInfoType.options.${value}`),
     value: `${value}`,
   }))
@@ -53,9 +55,8 @@ const ContactInfo = (props: Props): ReactElement => {
   }
   const Component = componentList[component]
 
-  const onTypeChange = (event: React.ChangeEvent<HTMLSelectElement>, index: number) => {
+  const onTypeChange = (newType: string, index: number) => {
     if (onChange) {
-      const newType = event.currentTarget.value
       const currentContact = { ...data[index], type: newType }
       const newContacts = [...data]
       newContacts.splice(index, 1, currentContact)
@@ -83,10 +84,10 @@ const ContactInfo = (props: Props): ReactElement => {
         <Column sm={4}>
           <SelectWithLabelFormGroup
             name={`${name}Type${i}`}
-            value={entry.type}
-            isEditable={isEditable}
             options={typeOptions}
-            onChange={(event) => onTypeChange(event, i)}
+            defaultSelected={typeOptions.filter(({ value }) => value === entry.type)}
+            onChange={(values) => onTypeChange(values[0], i)}
+            isEditable={isEditable}
           />
         </Column>
         <Column sm={8}>
@@ -127,7 +128,16 @@ const ContactInfo = (props: Props): ReactElement => {
   )
 
   if (isEditable && data.length === 0) {
-    return <Spinner color="blue" loading size={20} type="SyncLoader" />
+    return (
+      <Spinner
+        aria-hidden="false"
+        aria-label="Loading"
+        color="blue"
+        loading
+        size={20}
+        type="SyncLoader"
+      />
+    )
   }
 
   return (

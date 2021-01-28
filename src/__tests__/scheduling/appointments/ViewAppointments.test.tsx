@@ -1,95 +1,80 @@
-import '../../../__mocks__/matchMediaMock'
-
-import { Calendar } from '@hospitalrun/components'
-import { act } from '@testing-library/react'
-import { mount } from 'enzyme'
+import { render, waitFor, screen } from '@testing-library/react'
+import addMinutes from 'date-fns/addMinutes'
+import format from 'date-fns/format'
 import React from 'react'
 import { Provider } from 'react-redux'
 import { MemoryRouter } from 'react-router-dom'
 import createMockStore from 'redux-mock-store'
 import thunk from 'redux-thunk'
-import { mocked } from 'ts-jest/utils'
 
-import AppointmentRepository from '../../../clients/db/AppointmentRepository'
-import PatientRepository from '../../../clients/db/PatientRepository'
-import Appointment from '../../../model/Appointment'
-import Patient from '../../../model/Patient'
-import * as ButtonBarProvider from '../../../page-header/ButtonBarProvider'
-import * as titleUtil from '../../../page-header/useTitle'
+import * as ButtonBarProvider from '../../../page-header/button-toolbar/ButtonBarProvider'
+import * as titleUtil from '../../../page-header/title/TitleContext'
 import ViewAppointments from '../../../scheduling/appointments/ViewAppointments'
-import { RootState } from '../../../store'
+import AppointmentRepository from '../../../shared/db/AppointmentRepository'
+import PatientRepository from '../../../shared/db/PatientRepository'
+import Appointment from '../../../shared/model/Appointment'
+import Patient from '../../../shared/model/Patient'
+import { RootState } from '../../../shared/store'
 
-describe('ViewAppointments', () => {
-  const expectedAppointments = [
-    {
-      id: '123',
-      rev: '1',
-      patientId: '1234',
-      startDateTime: new Date().toISOString(),
-      endDateTime: new Date().toISOString(),
-      location: 'location',
-      reason: 'reason',
-    },
-  ] as Appointment[]
+const { TitleProvider } = titleUtil
 
-  const setup = async () => {
-    jest.spyOn(AppointmentRepository, 'findAll').mockResolvedValue(expectedAppointments)
-    jest.spyOn(PatientRepository, 'find')
-    const mockedPatientRepository = mocked(PatientRepository, true)
-    mockedPatientRepository.find.mockResolvedValue({
-      id: '123',
-      fullName: 'patient full name',
-    } as Patient)
-    const mockStore = createMockStore<RootState, any>([thunk])
-    return mount(
-      <Provider store={mockStore({ appointments: { appointments: expectedAppointments } } as any)}>
+const now = new Date()
+
+const setup = (start = new Date(now.setHours(14, 30))) => {
+  const expectedAppointment = {
+    id: '123',
+    rev: '1',
+    patient: '1234',
+    startDateTime: start.toISOString(),
+    endDateTime: addMinutes(start, 60).toISOString(),
+    location: 'location',
+    reason: 'reason',
+  } as Appointment
+  const expectedPatient = {
+    id: '123',
+    fullName: 'patient full name',
+  } as Patient
+
+  jest.spyOn(ButtonBarProvider, 'useButtonToolbarSetter').mockImplementation(() => jest.fn())
+  jest.spyOn(AppointmentRepository, 'findAll').mockResolvedValue([expectedAppointment])
+  jest.spyOn(PatientRepository, 'find').mockResolvedValue(expectedPatient)
+
+  const mockStore = createMockStore<RootState, any>([thunk])
+
+  return {
+    expectedPatient,
+    expectedAppointment,
+    ...render(
+      <Provider store={mockStore({ appointments: { appointments: [expectedAppointment] } } as any)}>
         <MemoryRouter initialEntries={['/appointments']}>
-          <ViewAppointments />
+          <TitleProvider>
+            <ViewAppointments />
+          </TitleProvider>
         </MemoryRouter>
       </Provider>,
-    )
+    ),
   }
+}
 
-  it('should use "Appointments" as the header', async () => {
-    jest.spyOn(titleUtil, 'default')
-    await act(async () => {
-      await setup()
-    })
-    expect(titleUtil.default).toHaveBeenCalledWith('scheduling.appointments.label')
-  })
-
+describe('ViewAppointments', () => {
   it('should add a "New Appointment" button to the button tool bar', async () => {
-    jest.spyOn(ButtonBarProvider, 'useButtonToolbarSetter')
-    const setButtonToolBarSpy = jest.fn()
-    mocked(ButtonBarProvider).useButtonToolbarSetter.mockReturnValue(setButtonToolBarSpy)
+    setup()
 
-    await act(async () => {
-      await setup()
+    await waitFor(() => {
+      expect(ButtonBarProvider.useButtonToolbarSetter).toHaveBeenCalled()
     })
-
-    const actualButtons: React.ReactNode[] = setButtonToolBarSpy.mock.calls[0][0]
-    expect((actualButtons[0] as any).props.children).toEqual('scheduling.appointments.new')
   })
 
   it('should render a calendar with the proper events', async () => {
-    let wrapper: any
-    await act(async () => {
-      wrapper = await setup()
+    const { expectedPatient, expectedAppointment } = setup()
+
+    await waitFor(() => {
+      expect(screen.getAllByText(expectedPatient.fullName as string)[0]).toBeInTheDocument()
     })
-    wrapper.update()
 
-    const expectedEvents = [
-      {
-        id: expectedAppointments[0].id,
-        start: new Date(expectedAppointments[0].startDateTime),
-        end: new Date(expectedAppointments[0].endDateTime),
-        title: 'patient full name',
-        allDay: false,
-      },
-    ]
+    const expectedStart = format(new Date(expectedAppointment.startDateTime), 'h:mm')
+    const expectedEnd = format(new Date(expectedAppointment.endDateTime), 'h:mm')
 
-    const calendar = wrapper.find(Calendar)
-    expect(calendar).toHaveLength(1)
-    expect(calendar.prop('events')).toEqual(expectedEvents)
+    expect(screen.getByText(`${expectedStart} - ${expectedEnd}`)).toBeInTheDocument()
   })
 })

@@ -2,13 +2,14 @@ import React from 'react'
 import { useSelector } from 'react-redux'
 import { Switch } from 'react-router-dom'
 
-import useAddBreadcrumbs from '../breadcrumbs/useAddBreadcrumbs'
-import PrivateRoute from '../components/PrivateRoute'
-import Permissions from '../model/Permissions'
-import { RootState } from '../store'
+import useAddBreadcrumbs from '../page-header/breadcrumbs/useAddBreadcrumbs'
+import PrivateRoute from '../shared/components/PrivateRoute'
+import Permissions from '../shared/model/Permissions'
+import { RootState } from '../shared/store'
 import ViewIncidents from './list/ViewIncidents'
 import ReportIncident from './report/ReportIncident'
 import ViewIncident from './view/ViewIncident'
+import VisualizeIncidents from './visualize/VisualizeIncidents'
 
 const Incidents = () => {
   const { permissions } = useSelector((state: RootState) => state.user)
@@ -33,6 +34,12 @@ const Incidents = () => {
         exact
         path="/incidents/new"
         component={ReportIncident}
+      />
+      <PrivateRoute
+        isAuthenticated={permissions.includes(Permissions.ViewIncidentWidgets)}
+        exact
+        path="/incidents/visualize"
+        component={VisualizeIncidents}
       />
       <PrivateRoute
         isAuthenticated={permissions.includes(Permissions.ViewIncident)}

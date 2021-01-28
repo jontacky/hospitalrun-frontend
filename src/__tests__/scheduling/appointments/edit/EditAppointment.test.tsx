@@ -1,33 +1,29 @@
-import '../../../../__mocks__/matchMediaMock'
-
-import { Button } from '@hospitalrun/components'
-import { roundToNearestMinutes, addMinutes } from 'date-fns'
-import { mount } from 'enzyme'
+import { render, waitFor, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import addMinutes from 'date-fns/addMinutes'
+import roundToNearestMinutes from 'date-fns/roundToNearestMinutes'
 import { createMemoryHistory } from 'history'
 import React from 'react'
-import { act } from 'react-dom/test-utils'
 import { Provider } from 'react-redux'
 import { Router, Route } from 'react-router-dom'
 import createMockStore, { MockStore } from 'redux-mock-store'
 import thunk from 'redux-thunk'
-import { mocked } from 'ts-jest/utils'
 
-import AppointmentRepository from '../../../../clients/db/AppointmentRepository'
-import PatientRepository from '../../../../clients/db/PatientRepository'
-import Appointment from '../../../../model/Appointment'
-import Patient from '../../../../model/Patient'
-import * as titleUtil from '../../../../page-header/useTitle'
-import * as appointmentSlice from '../../../../scheduling/appointments/appointment-slice'
-import AppointmentDetailForm from '../../../../scheduling/appointments/AppointmentDetailForm'
+import * as titleUtil from '../../../../page-header/title/TitleContext'
 import EditAppointment from '../../../../scheduling/appointments/edit/EditAppointment'
-import { RootState } from '../../../../store'
+import AppointmentRepository from '../../../../shared/db/AppointmentRepository'
+import PatientRepository from '../../../../shared/db/PatientRepository'
+import Appointment from '../../../../shared/model/Appointment'
+import Patient from '../../../../shared/model/Patient'
+import { RootState } from '../../../../shared/store'
 
+const { TitleProvider } = titleUtil
 const mockStore = createMockStore<RootState, any>([thunk])
 
 describe('Edit Appointment', () => {
-  const appointment = {
+  const expectedAppointment = {
     id: '123',
-    patientId: '456',
+    patient: '456',
     startDateTime: roundToNearestMinutes(new Date(), { nearestTo: 15 }).toISOString(),
     endDateTime: addMinutes(roundToNearestMinutes(new Date(), { nearestTo: 15 }), 60).toISOString(),
     location: 'location',
@@ -35,7 +31,7 @@ describe('Edit Appointment', () => {
     type: 'type',
   } as Appointment
 
-  const patient = {
+  const expectedPatient = ({
     id: '456',
     prefix: 'prefix',
     givenName: 'givenName',
@@ -51,135 +47,101 @@ describe('Edit Appointment', () => {
     address: 'address',
     code: 'P00001',
     dateOfBirth: new Date().toISOString(),
-  } as Patient
+  } as unknown) as Patient
 
   let history: any
   let store: MockStore
 
-  const setup = () => {
-    jest.spyOn(AppointmentRepository, 'saveOrUpdate')
-    jest.spyOn(AppointmentRepository, 'find')
-    jest.spyOn(PatientRepository, 'find')
-
-    const mockedAppointmentRepository = mocked(AppointmentRepository, true)
-    mockedAppointmentRepository.find.mockResolvedValue(appointment)
-    mockedAppointmentRepository.saveOrUpdate.mockResolvedValue(appointment)
-
-    const mockedPatientRepository = mocked(PatientRepository, true)
-    mockedPatientRepository.find.mockResolvedValue(patient)
+  const setup = async (mockAppointment: Appointment, mockPatient: Patient) => {
+    jest.resetAllMocks()
+    jest.spyOn(AppointmentRepository, 'saveOrUpdate').mockResolvedValue(mockAppointment)
+    jest.spyOn(AppointmentRepository, 'find').mockResolvedValue(mockAppointment)
+    jest.spyOn(PatientRepository, 'find').mockResolvedValue(mockPatient)
 
     history = createMemoryHistory()
-    store = mockStore({ appointment: { appointment, patient } } as any)
+    store = mockStore({ appointment: { mockAppointment, mockPatient } } as any)
 
     history.push('/appointments/edit/123')
-    const wrapper = mount(
+
+    return render(
       <Provider store={store}>
         <Router history={history}>
           <Route path="/appointments/edit/:id">
-            <EditAppointment />
+            <TitleProvider>
+              <EditAppointment />
+            </TitleProvider>
           </Route>
         </Router>
       </Provider>,
     )
-
-    wrapper.update()
-    return wrapper
   }
 
   beforeEach(() => {
     jest.restoreAllMocks()
   })
 
-  it('should render an edit appointment form', async () => {
-    let wrapper: any
-    await act(async () => {
-      wrapper = await setup()
+  it('should load an appointment when component loads', async () => {
+    setup(expectedAppointment, expectedPatient)
+
+    await waitFor(() => {
+      expect(AppointmentRepository.find).toHaveBeenCalledWith(expectedAppointment.id)
     })
-
-    wrapper.update()
-
-    expect(wrapper.find(AppointmentDetailForm)).toHaveLength(1)
+    await waitFor(() => {
+      expect(PatientRepository.find).toHaveBeenCalledWith(expectedAppointment.patient)
+    })
   })
 
-  it('should dispatch fetchAppointment when component loads', async () => {
-    await act(async () => {
-      await setup()
+  it('should updateAppointment when save button is clicked', async () => {
+    setup(expectedAppointment, expectedPatient)
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: /scheduling.appointments.updateAppointment/i }),
+      ).toBeInTheDocument()
     })
 
-    expect(AppointmentRepository.find).toHaveBeenCalledWith(appointment.id)
-    expect(PatientRepository.find).toHaveBeenCalledWith(appointment.patientId)
-    expect(store.getActions()).toContainEqual(appointmentSlice.fetchAppointmentStart())
-    expect(store.getActions()).toContainEqual(
-      appointmentSlice.fetchAppointmentSuccess({ appointment, patient }),
+    userEvent.click(
+      await screen.findByRole('button', { name: /scheduling.appointments.updateAppointment/i }),
     )
-  })
 
-  it('should use the correct title', async () => {
-    jest.spyOn(titleUtil, 'default')
-    await act(async () => {
-      await setup()
+    await waitFor(() => {
+      expect(AppointmentRepository.saveOrUpdate).toHaveBeenCalledWith(expectedAppointment)
     })
-    expect(titleUtil.default).toHaveBeenCalledWith('scheduling.appointments.editAppointment')
-  })
-
-  it('should dispatch updateAppointment when save button is clicked', async () => {
-    let wrapper: any
-    await act(async () => {
-      wrapper = await setup()
-    })
-
-    wrapper.update()
-
-    const saveButton = wrapper.find(Button).at(0)
-    const onClick = saveButton.prop('onClick') as any
-    expect(saveButton.text().trim()).toEqual('actions.save')
-
-    await act(async () => {
-      await onClick()
-    })
-
-    expect(AppointmentRepository.saveOrUpdate).toHaveBeenCalledWith(appointment)
-    expect(store.getActions()).toContainEqual(appointmentSlice.updateAppointmentStart())
-    expect(store.getActions()).toContainEqual(
-      appointmentSlice.updateAppointmentSuccess(appointment),
-    )
   })
 
   it('should navigate to /appointments/:id when save is successful', async () => {
-    let wrapper: any
-    await act(async () => {
-      wrapper = await setup()
+    setup(expectedAppointment, expectedPatient)
+
+    userEvent.click(
+      await screen.findByRole('button', { name: /scheduling.appointments.updateAppointment/i }),
+    )
+
+    await waitFor(() => {
+      expect(history.location.pathname).toEqual('/appointments/123')
     })
-
-    wrapper.update()
-
-    const saveButton = wrapper.find(Button).at(0)
-    const onClick = saveButton.prop('onClick') as any
-
-    await act(async () => {
-      await onClick()
-    })
-
-    expect(history.location.pathname).toEqual('/appointments/123')
   })
 
   it('should navigate to /appointments/:id when cancel is clicked', async () => {
-    let wrapper: any
-    await act(async () => {
-      wrapper = await setup()
+    setup(expectedAppointment, expectedPatient)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /actions.cancel/i })).toBeInTheDocument()
     })
 
-    wrapper.update()
+    userEvent.click(await screen.findByRole('button', { name: /actions.cancel/i }))
 
-    const cancelButton = wrapper.find(Button).at(1)
-    const onClick = cancelButton.prop('onClick') as any
-    expect(cancelButton.text().trim()).toEqual('actions.cancel')
-
-    act(() => {
-      onClick()
+    await waitFor(() => {
+      expect(history.location.pathname).toEqual('/appointments/123')
     })
+  })
 
-    wrapper.update()
-    expect(history.location.pathname).toEqual('/appointments/123')
+  it('should render an edit appointment form', async () => {
+    setup(expectedAppointment, expectedPatient)
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: /scheduling.appointments.updateAppointment/i }),
+      ).toBeInTheDocument()
+    })
   })
 })

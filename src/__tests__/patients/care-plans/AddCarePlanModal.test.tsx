@@ -1,120 +1,100 @@
-import '../../../__mocks__/matchMediaMock'
-import { Modal } from '@hospitalrun/components'
-import { mount } from 'enzyme'
+import { render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { createMemoryHistory } from 'history'
 import React from 'react'
-import { act } from 'react-dom/test-utils'
-import { Provider } from 'react-redux'
 import { Router } from 'react-router-dom'
-import createMockStore from 'redux-mock-store'
-import thunk from 'redux-thunk'
+import selectEvent from 'react-select-event'
 
-import { CarePlanIntent, CarePlanStatus } from '../../../model/CarePlan'
-import Patient from '../../../model/Patient'
 import AddCarePlanModal from '../../../patients/care-plans/AddCarePlanModal'
-import CarePlanForm from '../../../patients/care-plans/CarePlanForm'
-import * as patientSlice from '../../../patients/patient-slice'
-import { RootState } from '../../../store'
-
-const mockStore = createMockStore<RootState, any>([thunk])
+import PatientRepository from '../../../shared/db/PatientRepository'
+import CarePlan from '../../../shared/model/CarePlan'
+import Patient from '../../../shared/model/Patient'
 
 describe('Add Care Plan Modal', () => {
   const patient = {
-    id: 'patientId',
-    diagnoses: [{ id: '123', name: 'some name', diagnosisDate: new Date().toISOString() }],
-    carePlans: [
-      {
-        id: '123',
-        title: 'some title',
-        description: 'some description',
-        diagnosisId: '123',
-        startDate: new Date().toISOString(),
-        endDate: new Date().toISOString(),
-        status: CarePlanStatus.Active,
-        intent: CarePlanIntent.Proposal,
-      },
+    id: '0012',
+    diagnoses: [
+      { id: '123', name: 'too skinny', diagnosisDate: new Date().toISOString() },
+      { id: '456', name: 'headaches', diagnosisDate: new Date().toISOString() },
     ],
+    carePlans: [] as CarePlan[],
   } as Patient
-
-  const carePlanError = {
-    title: 'some care plan error',
-  }
 
   const onCloseSpy = jest.fn()
   const setup = () => {
-    const store = mockStore({ patient: { patient, carePlanError } } as any)
+    jest.spyOn(PatientRepository, 'find').mockResolvedValue(patient)
+    jest.spyOn(PatientRepository, 'saveOrUpdate')
     const history = createMemoryHistory()
-    const wrapper = mount(
-      <Provider store={store}>
-        <Router history={history}>
-          <AddCarePlanModal show onCloseButtonClick={onCloseSpy} />
-        </Router>
-      </Provider>,
-    )
 
-    wrapper.update()
-    return { wrapper }
+    return render(
+      <Router history={history}>
+        <AddCarePlanModal patient={patient} show onCloseButtonClick={onCloseSpy} />
+      </Router>,
+    )
   }
 
+  beforeEach(() => {
+    jest.resetAllMocks()
+  })
+
   it('should render a modal', () => {
-    const { wrapper } = setup()
+    setup()
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    const title = screen.getByText(/patient\.carePlan\.new/i, { selector: 'div' })
+    expect(title).toBeInTheDocument()
 
-    const modal = wrapper.find(Modal)
-
-    expect(modal).toHaveLength(1)
-
-    const successButton = modal.prop('successButton')
-    const cancelButton = modal.prop('closeButton')
-    expect(modal.prop('title')).toEqual('patient.carePlan.new')
-    expect(successButton?.children).toEqual('patient.carePlan.new')
-    expect(successButton?.icon).toEqual('add')
-    expect(cancelButton?.children).toEqual('actions.cancel')
+    expect(screen.getByRole('button', { name: /patient\.carePlan\.new/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /actions.cancel/i })).toBeInTheDocument()
   })
 
   it('should render the care plan form', () => {
-    const { wrapper } = setup()
-
-    const carePlanForm = wrapper.find(CarePlanForm)
-    expect(carePlanForm).toHaveLength(1)
-    expect(carePlanForm.prop('carePlanError')).toEqual(carePlanError)
-    expect(carePlanForm.prop('patient')).toEqual(patient)
+    setup()
+    expect(screen.getByRole('form')).toBeInTheDocument()
   })
 
-  it('should dispatch add care plan when the save button is clicked', async () => {
-    const { wrapper } = setup()
-    jest.spyOn(patientSlice, 'addCarePlan')
-
-    act(() => {
-      const carePlanForm = wrapper.find(CarePlanForm)
-      const onChange = carePlanForm.prop('onChange') as any
-      onChange(patient.carePlans[0])
-    })
-    wrapper.update()
-
-    await act(async () => {
-      const modal = wrapper.find(Modal)
-      const successButton = modal.prop('successButton')
-      const onClick = successButton?.onClick as any
-      await onClick()
-    })
-
-    expect(patientSlice.addCarePlan).toHaveBeenCalledTimes(1)
-    expect(patientSlice.addCarePlan).toHaveBeenCalledWith(patient.id, patient.carePlans[0])
-  })
-
-  it('should call the on close function when the cancel button is clicked', () => {
-    const { wrapper } = setup()
-
-    const modal = wrapper.find(Modal)
-
-    expect(modal).toHaveLength(1)
-
-    act(() => {
-      const cancelButton = modal.prop('closeButton')
-      const onClick = cancelButton?.onClick as any
-      onClick()
-    })
+  it('should call the on close function when the cancel button is clicked', async () => {
+    setup()
+    userEvent.click(
+      screen.getByRole('button', {
+        name: /close/i,
+      }),
+    )
 
     expect(onCloseSpy).toHaveBeenCalledTimes(1)
   })
+
+  it('should save care plan when the save button is clicked and close', async () => {
+    const expectedCarePlan = {
+      title: 'Feed Harry Potter',
+      description: 'Get Dobby to feed Harry Potter',
+      diagnosisId: '123', // condition
+    }
+
+    setup()
+
+    const condition = within(screen.getByTestId('conditionSelect')).getByRole('combobox')
+    await selectEvent.select(condition, `too skinny`)
+
+    const title = screen.getByLabelText(/patient\.careplan\.title/i)
+    const description = screen.getByLabelText(/patient\.careplan\.description/i)
+
+    userEvent.type(title, expectedCarePlan.title)
+    userEvent.type(description, expectedCarePlan.description)
+
+    userEvent.click(
+      within(screen.getByRole('dialog')).getByRole('button', {
+        name: /patient\.carePlan\.new/i,
+      }),
+    )
+
+    await waitFor(() => {
+      expect(PatientRepository.saveOrUpdate).toHaveBeenCalled()
+    })
+
+    expect(PatientRepository.saveOrUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        carePlans: expect.arrayContaining([expect.objectContaining(expectedCarePlan)]),
+      }),
+    )
+  }, 30000)
 })

@@ -1,18 +1,13 @@
 import { createSlice, PayloadAction } from '@reduxjs/toolkit'
-import { isAfter, isBefore, parseISO } from 'date-fns'
-import { isEmpty } from 'lodash'
-import validator from 'validator'
+import isEmpty from 'lodash/isEmpty'
 
-import PatientRepository from '../clients/db/PatientRepository'
-import Allergy from '../model/Allergy'
-import CarePlan from '../model/CarePlan'
-import Diagnosis from '../model/Diagnosis'
-import Note from '../model/Note'
-import Patient from '../model/Patient'
-import RelatedPerson from '../model/RelatedPerson'
-import { AppThunk } from '../store'
-import { uuid } from '../util/uuid'
+import PatientRepository from '../shared/db/PatientRepository'
+import Diagnosis from '../shared/model/Diagnosis'
+import Patient from '../shared/model/Patient'
+import { AppThunk } from '../shared/store'
+import { uuid } from '../shared/util/uuid'
 import { cleanupPatient } from './util/set-patient-helper'
+import validatePatient from './util/validate-patient'
 
 interface PatientState {
   status: 'loading' | 'error' | 'completed'
@@ -23,9 +18,7 @@ interface PatientState {
   updateError?: Error
   allergyError?: AddAllergyError
   diagnosisError?: AddDiagnosisError
-  noteError?: AddNoteError
   relatedPersonError?: AddRelatedPersonError
-  carePlanError?: AddCarePlanError
 }
 
 interface Error {
@@ -55,23 +48,7 @@ interface AddDiagnosisError {
   message?: string
   name?: string
   date?: string
-}
-
-interface AddNoteError {
-  message?: string
-  note?: string
-}
-
-interface AddCarePlanError {
-  message?: string
-  title?: string
-  description?: string
   status?: string
-  intent?: string
-  startDate?: string
-  endDate?: string
-  note?: string
-  condition?: string
 }
 
 const initialState: PatientState = {
@@ -81,11 +58,8 @@ const initialState: PatientState = {
   relatedPersons: [],
   createError: undefined,
   updateError: undefined,
-  allergyError: undefined,
   diagnosisError: undefined,
-  noteError: undefined,
   relatedPersonError: undefined,
-  carePlanError: undefined,
 }
 
 function start(state: PatientState) {
@@ -97,11 +71,6 @@ const patientSlice = createSlice({
   name: 'patient',
   initialState,
   reducers: {
-    fetchPatientStart: start,
-    fetchPatientSuccess(state, { payload }: PayloadAction<Patient>) {
-      state.status = 'completed'
-      state.patient = payload
-    },
     createPatientStart: start,
     createPatientSuccess(state) {
       state.status = 'completed'
@@ -119,124 +88,22 @@ const patientSlice = createSlice({
       state.status = 'error'
       state.updateError = payload
     },
-    addAllergyError(state, { payload }: PayloadAction<AddAllergyError>) {
-      state.status = 'error'
-      state.allergyError = payload
-    },
     addDiagnosisError(state, { payload }: PayloadAction<AddDiagnosisError>) {
       state.status = 'error'
       state.diagnosisError = payload
-    },
-    addRelatedPersonError(state, { payload }: PayloadAction<AddRelatedPersonError>) {
-      state.status = 'error'
-      state.relatedPersonError = payload
-    },
-    addNoteError(state, { payload }: PayloadAction<AddRelatedPersonError>) {
-      state.status = 'error'
-      state.noteError = payload
-    },
-    addCarePlanError(state, { payload }: PayloadAction<AddRelatedPersonError>) {
-      state.status = 'error'
-      state.carePlanError = payload
     },
   },
 })
 
 export const {
-  fetchPatientStart,
-  fetchPatientSuccess,
   createPatientStart,
   createPatientSuccess,
   createPatientError,
   updatePatientStart,
   updatePatientSuccess,
   updatePatientError,
-  addAllergyError,
   addDiagnosisError,
-  addRelatedPersonError,
-  addNoteError,
-  addCarePlanError,
 } = patientSlice.actions
-
-export const fetchPatient = (id: string): AppThunk => async (dispatch) => {
-  dispatch(fetchPatientStart())
-  const patient = await PatientRepository.find(id)
-  dispatch(fetchPatientSuccess(patient))
-}
-
-function validatePatient(patient: Patient) {
-  const error: Error = {}
-
-  const regexContainsNumber = /\d/
-
-  if (!patient.givenName) {
-    error.givenName = 'patient.errors.patientGivenNameFeedback'
-  }
-
-  if (patient.dateOfBirth) {
-    const today = new Date(Date.now())
-    const dob = parseISO(patient.dateOfBirth)
-    if (isAfter(dob, today)) {
-      error.dateOfBirth = 'patient.errors.patientDateOfBirthFeedback'
-    }
-  }
-
-  if (patient.suffix) {
-    if (regexContainsNumber.test(patient.suffix)) {
-      error.suffix = 'patient.errors.patientNumInSuffixFeedback'
-    }
-  }
-
-  if (patient.prefix) {
-    if (regexContainsNumber.test(patient.prefix)) {
-      error.prefix = 'patient.errors.patientNumInPrefixFeedback'
-    }
-  }
-
-  if (patient.familyName) {
-    if (regexContainsNumber.test(patient.familyName)) {
-      error.familyName = 'patient.errors.patientNumInFamilyNameFeedback'
-    }
-  }
-
-  if (patient.preferredLanguage) {
-    if (regexContainsNumber.test(patient.preferredLanguage)) {
-      error.preferredLanguage = 'patient.errors.patientNumInPreferredLanguageFeedback'
-    }
-  }
-
-  if (patient.emails) {
-    const errors: (string | undefined)[] = []
-    patient.emails.forEach((email) => {
-      if (!validator.isEmail(email.value)) {
-        errors.push('patient.errors.invalidEmail')
-      } else {
-        errors.push(undefined)
-      }
-    })
-    // Only add to error obj if there's an error
-    if (errors.some((value) => value !== undefined)) {
-      error.emails = errors
-    }
-  }
-
-  if (patient.phoneNumbers) {
-    const errors: (string | undefined)[] = []
-    patient.phoneNumbers.forEach((phoneNumber) => {
-      if (!validator.isMobilePhone(phoneNumber.value)) {
-        errors.push('patient.errors.invalidPhoneNumber')
-      } else {
-        errors.push(undefined)
-      }
-    })
-    // Only add to error obj if there's an error
-    if (errors.some((value) => value !== undefined)) {
-      error.phoneNumbers = errors
-    }
-  }
-
-  return error
-}
 
 export const createPatient = (
   patient: Patient,
@@ -247,7 +114,7 @@ export const createPatient = (
   const cleanPatient = cleanupPatient(patient)
   const newPatientError = validatePatient(cleanPatient)
 
-  if (isEmpty(newPatientError)) {
+  if (!newPatientError) {
     const newPatient = await PatientRepository.save(cleanPatient)
     dispatch(createPatientSuccess())
 
@@ -255,8 +122,12 @@ export const createPatient = (
       onSuccess(newPatient)
     }
   } else {
-    newPatientError.message = 'patient.errors.createPatientError'
-    dispatch(createPatientError(newPatientError))
+    dispatch(
+      createPatientError({
+        ...newPatientError.fieldErrors,
+        message: 'patient.errors.createPatientError',
+      }),
+    )
   }
 }
 
@@ -269,7 +140,7 @@ export const updatePatient = (
   const cleanPatient = cleanupPatient(patient)
   const updateError = validatePatient(cleanPatient)
 
-  if (isEmpty(updateError)) {
+  if (!updateError) {
     const updatedPatient = await PatientRepository.saveOrUpdate(cleanPatient)
     dispatch(updatePatientSuccess(updatedPatient))
 
@@ -277,54 +148,13 @@ export const updatePatient = (
       onSuccess(updatedPatient)
     }
   } else {
-    updateError.message = 'patient.errors.updatePatientError'
-    dispatch(updatePatientError(updateError))
+    dispatch(
+      updatePatientError({
+        ...updateError.fieldErrors,
+        message: 'patient.errors.updatePatientError',
+      }),
+    )
   }
-}
-
-function validateRelatedPerson(relatedPerson: RelatedPerson) {
-  const error: AddRelatedPersonError = {}
-
-  if (!relatedPerson.patientId) {
-    error.relatedPerson = 'patient.relatedPersons.error.relatedPersonRequired'
-  }
-
-  if (!relatedPerson.type) {
-    error.relationshipType = 'patient.relatedPersons.error.relationshipTypeRequired'
-  }
-
-  return error
-}
-
-export const addRelatedPerson = (
-  patientId: string,
-  relatedPerson: RelatedPerson,
-  onSuccess?: (patient: Patient) => void,
-): AppThunk => async (dispatch) => {
-  const newRelatedPersonError = validateRelatedPerson(relatedPerson)
-
-  if (isEmpty(newRelatedPersonError)) {
-    const patient = await PatientRepository.find(patientId)
-    const relatedPersons = patient.relatedPersons || []
-    relatedPersons.push({ id: uuid(), ...relatedPerson })
-    patient.relatedPersons = relatedPersons
-
-    await dispatch(updatePatient(patient, onSuccess))
-  } else {
-    newRelatedPersonError.message = 'patient.relatedPersons.error.unableToAddRelatedPerson'
-    dispatch(addRelatedPersonError(newRelatedPersonError))
-  }
-}
-
-export const removeRelatedPerson = (
-  patientId: string,
-  relatedPersonId: string,
-  onSuccess?: (patient: Patient) => void,
-): AppThunk => async (dispatch) => {
-  const patient = await PatientRepository.find(patientId)
-  patient.relatedPersons = patient.relatedPersons?.filter((r) => r.patientId !== relatedPersonId)
-
-  await dispatch(updatePatient(patient, onSuccess))
 }
 
 function validateDiagnosis(diagnosis: Diagnosis) {
@@ -338,6 +168,13 @@ function validateDiagnosis(diagnosis: Diagnosis) {
     error.date = 'patient.diagnoses.error.dateRequired'
   }
 
+  if (!diagnosis.onsetDate) {
+    error.date = 'patient.diagnoses.error.dateRequired'
+  }
+
+  if (!diagnosis.status) {
+    error.status = 'patient.diagnoses.error.statusRequired'
+  }
   return error
 }
 
@@ -358,132 +195,6 @@ export const addDiagnosis = (
   } else {
     newDiagnosisError.message = 'patient.diagnoses.error.unableToAdd'
     dispatch(addDiagnosisError(newDiagnosisError))
-  }
-}
-
-function validateAllergy(allergy: Allergy) {
-  const error: AddAllergyError = {}
-
-  if (!allergy.name) {
-    error.name = 'patient.allergies.error.nameRequired'
-  }
-
-  return error
-}
-
-export const addAllergy = (
-  patientId: string,
-  allergy: Allergy,
-  onSuccess?: (patient: Patient) => void,
-): AppThunk => async (dispatch) => {
-  const newAllergyError = validateAllergy(allergy)
-
-  if (isEmpty(newAllergyError)) {
-    const patient = await PatientRepository.find(patientId)
-    const allergies = patient.allergies || []
-    allergies.push({ id: uuid(), ...allergy })
-    patient.allergies = allergies
-
-    await dispatch(updatePatient(patient, onSuccess))
-  } else {
-    newAllergyError.message = 'patient.allergies.error.unableToAdd'
-    dispatch(addAllergyError(newAllergyError))
-  }
-}
-
-function validateNote(note: Note) {
-  const error: AddNoteError = {}
-  if (!note.text) {
-    error.message = 'patient.notes.error.noteRequired'
-  }
-
-  return error
-}
-
-export const addNote = (
-  patientId: string,
-  note: Note,
-  onSuccess?: (patient: Patient) => void,
-): AppThunk => async (dispatch) => {
-  const newNoteError = validateNote(note)
-
-  if (isEmpty(newNoteError)) {
-    const patient = await PatientRepository.find(patientId)
-    const notes = patient.notes || []
-    notes.push({ id: uuid(), date: new Date().toISOString(), ...note })
-    patient.notes = notes
-
-    await dispatch(updatePatient(patient, onSuccess))
-  } else {
-    newNoteError.message = 'patient.notes.error.unableToAdd'
-    dispatch(addNoteError(newNoteError))
-  }
-}
-
-function validateCarePlan(carePlan: CarePlan): AddCarePlanError {
-  const error: AddCarePlanError = {}
-
-  if (!carePlan.title) {
-    error.title = 'patient.carePlan.error.titleRequired'
-  }
-
-  if (!carePlan.description) {
-    error.description = 'patient.carePlan.error.descriptionRequired'
-  }
-
-  if (!carePlan.status) {
-    error.status = 'patient.carePlan.error.statusRequired'
-  }
-
-  if (!carePlan.intent) {
-    error.intent = 'patient.carePlan.error.intentRequired'
-  }
-
-  if (!carePlan.startDate) {
-    error.startDate = 'patient.carePlan.error.startDateRequired'
-  }
-
-  if (!carePlan.endDate) {
-    error.endDate = 'patient.carePlan.error.endDateRequired'
-  }
-
-  if (carePlan.startDate && carePlan.endDate) {
-    if (isBefore(new Date(carePlan.endDate), new Date(carePlan.startDate))) {
-      error.endDate = 'patient.carePlan.error.endDateMustBeAfterStartDate'
-    }
-  }
-
-  if (!carePlan.diagnosisId) {
-    error.condition = 'patient.carePlan.error.conditionRequired'
-  }
-
-  if (!carePlan.note) {
-    error.note = 'patient.carePlan.error.noteRequired'
-  }
-
-  return error
-}
-
-export const addCarePlan = (
-  patientId: string,
-  carePlan: CarePlan,
-  onSuccess?: (patient: Patient) => void,
-): AppThunk => async (dispatch) => {
-  const carePlanError = validateCarePlan(carePlan)
-  if (isEmpty(carePlanError)) {
-    const patient = await PatientRepository.find(patientId)
-    const carePlans = patient.carePlans || ([] as CarePlan[])
-    carePlans.push({
-      id: uuid(),
-      createdOn: new Date(Date.now().valueOf()).toISOString(),
-      ...carePlan,
-    })
-    patient.carePlans = carePlans
-
-    await dispatch(updatePatient(patient, onSuccess))
-  } else {
-    carePlanError.message = 'patient.carePlan.error.unableToAdd'
-    dispatch(addCarePlanError(carePlanError))
   }
 }
 

@@ -1,15 +1,15 @@
-import { Button, Alert, Spinner } from '@hospitalrun/components'
-import React, { useState, useEffect } from 'react'
-import { useTranslation } from 'react-i18next'
-import { useDispatch, useSelector } from 'react-redux'
+import { Button, Alert, Spinner, Table } from '@hospitalrun/components'
+import React, { useState } from 'react'
+import { useSelector } from 'react-redux'
 import { useHistory } from 'react-router-dom'
 
-import useAddBreadcrumbs from '../../breadcrumbs/useAddBreadcrumbs'
-import PatientRepository from '../../clients/db/PatientRepository'
-import Patient from '../../model/Patient'
-import Permissions from '../../model/Permissions'
-import { RootState } from '../../store'
-import { removeRelatedPerson } from '../patient-slice'
+import useAddBreadcrumbs from '../../page-header/breadcrumbs/useAddBreadcrumbs'
+import useTranslator from '../../shared/hooks/useTranslator'
+import Patient from '../../shared/model/Patient'
+import Permissions from '../../shared/model/Permissions'
+import { RootState } from '../../shared/store'
+import usePatientRelatedPersons from '../hooks/usePatientRelatedPersons'
+import useRemovePatientRelatedPerson from '../hooks/useRemovePatientRelatedPerson'
 import AddRelatedPersonModal from './AddRelatedPersonModal'
 
 interface Props {
@@ -17,17 +17,16 @@ interface Props {
 }
 
 const RelatedPersonTab = (props: Props) => {
-  const dispatch = useDispatch()
   const history = useHistory()
 
   const navigateTo = (location: string) => {
     history.push(location)
   }
   const { patient } = props
-  const { t } = useTranslation()
+  const { t } = useTranslator()
   const { permissions } = useSelector((state: RootState) => state.user)
   const [showNewRelatedPersonModal, setShowRelatedPersonModal] = useState<boolean>(false)
-  const [relatedPersons, setRelatedPersons] = useState<Patient[] | undefined>(undefined)
+  const [mutate] = useRemovePatientRelatedPerson()
 
   const breadcrumbs = [
     {
@@ -37,41 +36,18 @@ const RelatedPersonTab = (props: Props) => {
   ]
   useAddBreadcrumbs(breadcrumbs)
 
-  useEffect(() => {
-    const fetchRelatedPersons = async () => {
-      const fetchedRelatedPersons: Patient[] = []
-      if (patient.relatedPersons) {
-        await Promise.all(
-          patient.relatedPersons.map(async (person) => {
-            const fetchedRelatedPerson = await PatientRepository.find(person.patientId)
-            fetchedRelatedPersons.push({ ...fetchedRelatedPerson, type: person.type })
-          }),
-        )
-      }
-
-      setRelatedPersons(fetchedRelatedPersons)
-    }
-
-    fetchRelatedPersons()
-  }, [patient.relatedPersons])
+  const { data: relatedPersons } = usePatientRelatedPersons(patient.id)
 
   const onNewRelatedPersonClick = () => {
     setShowRelatedPersonModal(true)
   }
 
-  const onRelatedPersonClick = (id: string) => {
-    navigateTo(`/patients/${id}`)
-  }
   const closeNewRelatedPersonModal = () => {
     setShowRelatedPersonModal(false)
   }
 
-  const onRelatedPersonDelete = (
-    event: React.MouseEvent<HTMLButtonElement>,
-    relatedPerson: Patient,
-  ) => {
-    event.stopPropagation()
-    dispatch(removeRelatedPerson(patient.id, relatedPerson.id))
+  const onRelatedPersonDelete = (relatedPerson: Patient) => {
+    mutate({ patientId: patient.id, relatedPersonId: relatedPerson.id })
   }
 
   return (
@@ -96,34 +72,24 @@ const RelatedPersonTab = (props: Props) => {
         <div className="col-md-12">
           {relatedPersons ? (
             relatedPersons.length > 0 ? (
-              <table className="table table-hover">
-                <thead className="thead-light">
-                  <tr>
-                    <th>{t('patient.givenName')}</th>
-                    <th>{t('patient.familyName')}</th>
-                    <th>{t('patient.relatedPersons.relationshipType')}</th>
-                    <th>{t('actions.label')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {relatedPersons.map((r) => (
-                    <tr key={r.id} onClick={() => onRelatedPersonClick(r.id)}>
-                      <td>{r.givenName}</td>
-                      <td>{r.familyName}</td>
-                      <td>{r.type}</td>
-                      <td>
-                        <Button
-                          icon="remove"
-                          color="danger"
-                          onClick={(e) => onRelatedPersonDelete(e, r)}
-                        >
-                          {t('actions.delete')}
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <Table
+                getID={(row) => row.id}
+                data={relatedPersons}
+                columns={[
+                  { label: t('patient.givenName'), key: 'givenName' },
+                  { label: t('patient.familyName'), key: 'familyName' },
+                  { label: t('patient.relatedPersons.relationshipType'), key: 'type' },
+                ]}
+                actionsHeaderText={t('actions.label')}
+                actions={[
+                  { label: t('actions.view'), action: (row) => navigateTo(`/patients/${row.id}`) },
+                  {
+                    label: t('actions.delete'),
+                    action: (row) => onRelatedPersonDelete(row as Patient),
+                    buttonColor: 'danger',
+                  },
+                ]}
+              />
             ) : (
               <Alert
                 color="warning"
@@ -138,6 +104,7 @@ const RelatedPersonTab = (props: Props) => {
       </div>
 
       <AddRelatedPersonModal
+        patientId={patient.id}
         show={showNewRelatedPersonModal}
         toggle={closeNewRelatedPersonModal}
         onCloseButtonClick={closeNewRelatedPersonModal}

@@ -1,89 +1,92 @@
-import '../../../__mocks__/matchMediaMock'
-import { Button } from '@hospitalrun/components'
-import { mount } from 'enzyme'
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { createMemoryHistory } from 'history'
 import React from 'react'
-import { act } from 'react-dom/test-utils'
-import { Provider } from 'react-redux'
 import { Router } from 'react-router-dom'
-import createMockStore from 'redux-mock-store'
-import thunk from 'redux-thunk'
 
-import CarePlan, { CarePlanIntent, CarePlanStatus } from '../../../model/CarePlan'
-import Patient from '../../../model/Patient'
 import CarePlanTable from '../../../patients/care-plans/CarePlanTable'
-import { RootState } from '../../../store'
-
-const mockStore = createMockStore<RootState, any>([thunk])
+import PatientRepository from '../../../shared/db/PatientRepository'
+import CarePlan, { CarePlanIntent, CarePlanStatus } from '../../../shared/model/CarePlan'
+import Patient from '../../../shared/model/Patient'
 
 describe('Care Plan Table', () => {
   const carePlan: CarePlan = {
-    id: 'id',
-    title: 'title',
-    description: 'description',
+    id: '0001',
+    title: 'chicken pox',
+    description: 'super itchy spots',
     status: CarePlanStatus.Active,
     intent: CarePlanIntent.Option,
     startDate: new Date(2020, 6, 3).toISOString(),
     endDate: new Date(2020, 6, 5).toISOString(),
-    diagnosisId: 'some id',
+    diagnosisId: '0123',
     createdOn: new Date().toISOString(),
-    note: 'note',
+    note: 'Apply Camomile lotion to spots',
   }
   const patient = {
     id: 'patientId',
-    diagnoses: [{ id: '123', name: 'some name', diagnosisDate: new Date().toISOString() }],
+    diagnoses: [{ id: '0123', name: 'chicken pox', diagnosisDate: new Date().toISOString() }],
     carePlans: [carePlan],
   } as Patient
 
-  const setup = () => {
-    const store = mockStore({ patient: { patient } } as any)
+  const setup = async (expectedPatient = patient) => {
+    jest.spyOn(PatientRepository, 'find').mockResolvedValue(expectedPatient)
     const history = createMemoryHistory()
     history.push(`/patients/${patient.id}/care-plans/${patient.carePlans[0].id}`)
-    const wrapper = mount(
-      <Provider store={store}>
-        <Router history={history}>
-          <CarePlanTable />
-        </Router>
-      </Provider>,
-    )
 
-    return { wrapper, history }
+    return {
+      history,
+      ...render(
+        <Router history={history}>
+          <CarePlanTable patientId={expectedPatient.id} />
+        </Router>,
+      ),
+    }
   }
 
-  it('should render a table', () => {
-    const { wrapper } = setup()
+  it('should render a table', async () => {
+    setup()
 
-    const table = wrapper.find('table')
-    const tableHeader = table.find('thead')
-    const headers = tableHeader.find('th')
-    const body = table.find('tbody')
-    const columns = body.find('tr').find('td')
+    await screen.findByRole('table')
 
-    expect(headers.at(0).text()).toEqual('patient.carePlan.title')
-    expect(headers.at(1).text()).toEqual('patient.carePlan.startDate')
-    expect(headers.at(2).text()).toEqual('patient.carePlan.endDate')
-    expect(headers.at(3).text()).toEqual('patient.carePlan.status')
-    expect(headers.at(4).text()).toEqual('actions.label')
+    const columns = screen.getAllByRole('columnheader')
 
-    expect(columns.at(0).text()).toEqual(carePlan.title)
-    expect(columns.at(1).text()).toEqual('2020-07-03')
-    expect(columns.at(2).text()).toEqual('2020-07-05')
-    expect(columns.at(3).text()).toEqual(carePlan.status)
-    expect(columns.at(4).find('button')).toHaveLength(1)
+    expect(columns[0]).toHaveTextContent(/patient\.carePlan\.title/i)
+    expect(columns[1]).toHaveTextContent(/patient\.carePlan\.startDate/i)
+    expect(columns[2]).toHaveTextContent(/patient\.carePlan\.endDate/i)
+    expect(columns[3]).toHaveTextContent(/patient\.carePlan\.status/i)
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', {
+          name: /actions\.view/i,
+        }),
+      ).toBeInTheDocument()
+    })
   })
 
-  it('should navigate to the care plan view when the view details button is clicked', () => {
-    const { wrapper, history } = setup()
+  it('should navigate to the care plan view when the view details button is clicked', async () => {
+    const { history } = await setup()
 
-    const table = wrapper.find('table')
-    const body = table.find('tbody')
-    const columns = body.find('tr').find('td')
+    await screen.findByRole('table')
 
-    act(() => {
-      const onClick = columns.at(4).find(Button).prop('onClick') as any
-      onClick()
+    const actionButton = await screen.findByRole('button', {
+      name: /actions\.view/i,
     })
 
+    userEvent.click(actionButton)
+
     expect(history.location.pathname).toEqual(`/patients/${patient.id}/care-plans/${carePlan.id}`)
+  })
+
+  it('should display a warning if there are no care plans', async () => {
+    await setup({ ...patient, carePlans: [] })
+
+    await waitFor(() => {
+      expect(screen.getByText(/patient\.carePlans\.warning\.noCarePlans/i)).toBeInTheDocument()
+    })
+
+    await waitFor(() => {
+      expect(screen.getByText(/patient\.carePlans\.warning\.addCarePlanAbove/i)).toBeInTheDocument()
+    })
   })
 })
